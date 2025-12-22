@@ -84,7 +84,8 @@ public abstract class AbstractIcebergTableOperations
     protected final String tableName;
     protected final Optional<String> owner;
     protected final Optional<String> location;
-    protected final FileIO fileIo;
+    protected final FileIO baseFileIo;
+    protected FileIO effectiveFileIo;
 
     protected TableMetadata currentMetadata;
     protected String currentMetadataLocation;
@@ -99,7 +100,8 @@ public abstract class AbstractIcebergTableOperations
             Optional<String> owner,
             Optional<String> location)
     {
-        this.fileIo = requireNonNull(fileIo, "fileIo is null");
+        this.baseFileIo = requireNonNull(fileIo, "fileIo is null");
+        this.effectiveFileIo = this.baseFileIo;
         this.session = requireNonNull(session, "session is null");
         this.database = requireNonNull(database, "database is null");
         this.tableName = requireNonNull(table, "table is null");
@@ -175,7 +177,7 @@ public abstract class AbstractIcebergTableOperations
         }
         else {
             commitToExistingTable(base, metadata);
-            deleteRemovedMetadataFiles(fileIo, base, metadata);
+            deleteRemovedMetadataFiles(baseFileIo, base, metadata);
         }
 
         shouldRefresh = true;
@@ -192,7 +194,12 @@ public abstract class AbstractIcebergTableOperations
     @Override
     public FileIO io()
     {
-        return fileIo;
+        return effectiveFileIo;
+    }
+
+    protected void setEffectiveFileIo(FileIO fileIo)
+    {
+        this.effectiveFileIo = requireNonNull(fileIo, "fileIo is null");
     }
 
     @Override
@@ -228,7 +235,7 @@ public abstract class AbstractIcebergTableOperations
     protected String writeNewMetadata(TableMetadata metadata, int newVersion)
     {
         String newTableMetadataFilePath = newTableMetadataFilePath(metadata, newVersion);
-        OutputFile newMetadataLocation = fileIo.newOutputFile(newTableMetadataFilePath);
+        OutputFile newMetadataLocation = baseFileIo.newOutputFile(newTableMetadataFilePath);
 
         // write the new metadata
         TableMetadataParser.write(metadata, newMetadataLocation);
@@ -240,7 +247,7 @@ public abstract class AbstractIcebergTableOperations
     {
         refreshFromMetadataLocation(
                 newLocation,
-                metadataLocation -> TableMetadataParser.read(fileIo.newInputFile(metadataLocation)));
+                metadataLocation -> TableMetadataParser.read(effectiveFileIo.newInputFile(metadataLocation)));
     }
 
     protected void refreshFromMetadataLocation(String newLocation, Function<String, TableMetadata> metadataLoader)

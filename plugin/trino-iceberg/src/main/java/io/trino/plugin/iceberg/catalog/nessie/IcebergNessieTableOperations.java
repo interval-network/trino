@@ -88,7 +88,7 @@ public class IcebergNessieTableOperations
         super.refreshFromMetadataLocation(
                 newLocation,
                 location -> NessieUtil.updateTableMetadataWithNessieSpecificProperties(
-                    TableMetadataParser.read(fileIo, location),
+                    TableMetadataParser.read(baseFileIo, location),
                     location, table, getSchemaTableName().toString(), nessieClient.getReference()));
     }
 

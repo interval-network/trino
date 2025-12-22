@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.iceberg.catalog.hms;
 
+import io.airlift.log.Logger;
 import io.trino.annotation.NotThreadSafe;
 import io.trino.metastore.PrincipalPrivileges;
 import io.trino.metastore.Table;
@@ -28,6 +29,7 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.io.FileIO;
 
 import java.util.Optional;
+import java.util.function.Function;
 
 import static com.google.common.base.Verify.verify;
 import static io.trino.metastore.PrincipalPrivileges.NO_PRIVILEGES;
@@ -53,19 +55,65 @@ import static org.apache.iceberg.TableProperties.CURRENT_SNAPSHOT_TIMESTAMP;
 public abstract class AbstractMetastoreTableOperations
         extends AbstractIcebergTableOperations
 {
+    private static final Logger log = Logger.get(AbstractMetastoreTableOperations.class);
+
     protected final CachingHiveMetastore metastore;
+    protected final EncryptionManagerFactory encryptionManagerFactory;
+    private final FileIO unwrappedFileIo;
+    private final DynamicEncryptionManager dynamicEncryptionManager;
 
     protected AbstractMetastoreTableOperations(
             FileIO fileIo,
             CachingHiveMetastore metastore,
+            EncryptionManagerFactory encryptionManagerFactory,
             ConnectorSession session,
             String database,
             String table,
             Optional<String> owner,
             Optional<String> location)
     {
-        super(fileIo, session, database, table, owner, location);
+        // Wrap FileIO with TrinoEncryptingFileIO + DynamicEncryptionManager
+        // Snapshots created during metadata loading will capture this wrapper
+        // When we upgrade the DynamicEncryptionManager, Snapshots will use the new EncryptionManager
+        this(
+                fileIo,
+                metastore,
+                encryptionManagerFactory,
+                session,
+                database,
+                table,
+                owner,
+                location,
+                new DynamicEncryptionManager());
+    }
+
+    protected AbstractMetastoreTableOperations(
+            FileIO fileIo,
+            CachingHiveMetastore metastore,
+            EncryptionManagerFactory encryptionManagerFactory,
+            ConnectorSession session,
+            String database,
+            String table,
+            Optional<String> owner,
+            Optional<String> location,
+            DynamicEncryptionManager dynamicEncryptionManager)
+    {
+        super(
+                org.apache.iceberg.encryption.TrinoEncryptingFileIO.wrap(
+                        new PropertyExposingFileIO(fileIo),
+                        dynamicEncryptionManager,
+                        fileIo),
+                session,
+                database,
+                table,
+                owner,
+                location);
+
+        // Store references
+        this.unwrappedFileIo = requireNonNull(fileIo, "fileIo is null");
         this.metastore = requireNonNull(metastore, "metastore is null");
+        this.encryptionManagerFactory = requireNonNull(encryptionManagerFactory, "encryptionManagerFactory is null");
+        this.dynamicEncryptionManager = dynamicEncryptionManager;
     }
 
     @Override
@@ -127,7 +175,7 @@ public abstract class AbstractMetastoreTableOperations
         }
         catch (Exception e) {
             // clean up metadata file corresponding to the current transaction
-            fileIo.deleteFile(newMetadataLocation);
+            baseFileIo.deleteFile(newMetadataLocation);
             // wrap exception in CleanableFailure to ensure that manifest list Avro files are also cleaned up
             throw new CreateTableException(e, getSchemaTableName());
         }
@@ -158,5 +206,39 @@ public abstract class AbstractMetastoreTableOperations
     {
         return metastore.getTable(database, tableName)
                 .orElseThrow(() -> new TableNotFoundException(getSchemaTableName()));
+    }
+
+    @Override
+    protected void refreshFromMetadataLocation(String newLocation, Function<String, TableMetadata> metadataLoader)
+    {
+        // Call parent to load metadata - Snapshots will capture DynamicEncryptionManager reference
+        super.refreshFromMetadataLocation(newLocation, metadataLoader);
+
+        // After metadata is loaded, check if table is encrypted and upgrade EncryptionManager
+        if (currentMetadata != null && currentMetadata.encryptionKeys() != null && !currentMetadata.encryptionKeys().isEmpty()) {
+            log.info("Table %s is encrypted with %d encryption keys, upgrading EncryptionManager",
+                    getSchemaTableName(), currentMetadata.encryptionKeys().size());
+
+            try {
+                // Create StandardEncryptionManager using the factory
+                org.apache.iceberg.encryption.EncryptionManager standardEncryptionManager =
+                        encryptionManagerFactory.create(currentMetadata);
+
+                if (standardEncryptionManager != null) {
+                    // Upgrade the DynamicEncryptionManager
+                    // All Snapshots that captured the DynamicEncryptionManager reference
+                    // will now use StandardEncryptionManager
+                    dynamicEncryptionManager.upgrade(standardEncryptionManager);
+                    log.info("Successfully upgraded EncryptionManager for table %s", getSchemaTableName());
+                }
+                else {
+                    log.warn("EncryptionManager factory returned null for encrypted table %s", getSchemaTableName());
+                }
+            }
+            catch (Exception e) {
+                log.error(e, "Failed to upgrade EncryptionManager for table %s", getSchemaTableName());
+                throw new RuntimeException("Failed to configure encryption for table " + getSchemaTableName(), e);
+            }
+        }
     }
 }

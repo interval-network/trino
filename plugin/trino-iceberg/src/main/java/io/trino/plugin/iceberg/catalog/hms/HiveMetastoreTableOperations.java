@@ -57,6 +57,7 @@ public class HiveMetastoreTableOperations
     public HiveMetastoreTableOperations(
             FileIO fileIo,
             CachingHiveMetastore metastore,
+            EncryptionManagerFactory encryptionManagerFactory,
             ThriftMetastore thriftMetastore,
             boolean lockingEnabled,
             ConnectorSession session,
@@ -65,7 +66,25 @@ public class HiveMetastoreTableOperations
             Optional<String> owner,
             Optional<String> location)
     {
-        super(fileIo, metastore, session, database, table, owner, location);
+        super(fileIo, metastore, encryptionManagerFactory, session, database, table, owner, location);
+        this.thriftMetastore = requireNonNull(thriftMetastore, "thriftMetastore is null");
+        this.lockingEnabled = lockingEnabled;
+    }
+
+    public HiveMetastoreTableOperations(
+            FileIO fileIo,
+            CachingHiveMetastore metastore,
+            EncryptionManagerFactory encryptionManagerFactory,
+            ThriftMetastore thriftMetastore,
+            boolean lockingEnabled,
+            ConnectorSession session,
+            String database,
+            String table,
+            Optional<String> owner,
+            Optional<String> location,
+            DynamicEncryptionManager sharedEncryptionManager)
+    {
+        super(fileIo, metastore, encryptionManagerFactory, session, database, table, owner, location, sharedEncryptionManager);
         this.thriftMetastore = requireNonNull(thriftMetastore, "thriftMetastore is null");
         this.lockingEnabled = lockingEnabled;
     }

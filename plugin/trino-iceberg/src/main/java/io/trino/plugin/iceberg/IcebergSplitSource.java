@@ -715,6 +715,15 @@ public class IcebergSplitSource
                     .toList());
         }
 
+        // Extract key metadata for encrypted files
+        Optional<byte[]> keyMetadata = Optional.empty();
+        if (task.file().keyMetadata() != null) {
+            java.nio.ByteBuffer keyMetadataBuffer = task.file().keyMetadata();
+            byte[] keyMetadataBytes = new byte[keyMetadataBuffer.remaining()];
+            keyMetadataBuffer.duplicate().get(keyMetadataBytes);
+            keyMetadata = Optional.of(keyMetadataBytes);
+        }
+
         return new IcebergSplit(
                 task.file().location(),
                 task.start(),
@@ -732,7 +741,8 @@ public class IcebergSplitSource
                 taskWithDomain.fileStatisticsDomain(),
                 fileIoProperties,
                 cachingHostAddressProvider.getHosts(getSplitKey(task.file().location(), task.start(), task.length()), ImmutableList.of()),
-                task.file().dataSequenceNumber());
+                task.file().dataSequenceNumber(),
+                keyMetadata);
     }
 
     private double getSplitWeight(FileScanTask task)
