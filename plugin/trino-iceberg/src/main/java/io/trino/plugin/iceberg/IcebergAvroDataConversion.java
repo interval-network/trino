@@ -229,14 +229,14 @@ public final class IcebergAvroDataConversion
         if (type instanceof RowType rowType) {
             SqlRow sqlRow = rowType.getObject(block, position);
 
-            List<Type> fieldTypes = rowType.getFieldTypes();
-            checkArgument(fieldTypes.size() == sqlRow.getFieldCount(), "Expected row value field count does not match type field count");
+            List<RowType.Field> fields = rowType.getFields();
+            checkArgument(fields.size() == sqlRow.getFieldCount(), "Expected row value field count does not match type field count");
             List<Types.NestedField> icebergFields = icebergType.asStructType().fields();
 
             int rawIndex = sqlRow.getRawIndex();
             Record record = GenericRecord.create(icebergType.asStructType());
             for (int i = 0; i < sqlRow.getFieldCount(); i++) {
-                Object element = toIcebergAvroObject(fieldTypes.get(i), icebergFields.get(i).type(), sqlRow.getRawFieldBlock(i), rawIndex);
+                Object element = toIcebergAvroObject(fields.get(i).getType(), icebergFields.get(i).type(), sqlRow.getRawFieldBlock(i), rawIndex);
                 record.set(i, element);
             }
 
@@ -342,11 +342,11 @@ public final class IcebergAvroDataConversion
         }
         if (type instanceof RowType rowType) {
             Record record = (Record) object;
-            List<Type> typeParameters = rowType.getFieldTypes();
+            List<RowType.Field> fields = rowType.getFields();
             List<Types.NestedField> icebergFields = icebergType.asStructType().fields();
             ((RowBlockBuilder) builder).buildEntry(fieldBuilders -> {
-                for (int i = 0; i < typeParameters.size(); i++) {
-                    serializeToTrinoBlock(typeParameters.get(i), icebergFields.get(i).type(), fieldBuilders.get(i), record.get(i));
+                for (int i = 0; i < fields.size(); i++) {
+                    serializeToTrinoBlock(fields.get(i).getType(), icebergFields.get(i).type(), fieldBuilders.get(i), record.get(i));
                 }
             });
             return;
