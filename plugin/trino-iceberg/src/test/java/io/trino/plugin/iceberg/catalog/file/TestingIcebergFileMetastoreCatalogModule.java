@@ -24,6 +24,9 @@ import io.trino.metastore.cache.CachingHiveMetastoreConfig;
 import io.trino.plugin.hive.metastore.CachingHiveMetastoreModule;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
+import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
+import io.trino.plugin.iceberg.catalog.hms.StandardEncryptionManagerFactory;
 import io.trino.plugin.iceberg.catalog.hms.TrinoHiveCatalogFactory;
 
 import java.util.concurrent.TimeUnit;
@@ -44,10 +47,16 @@ public class TestingIcebergFileMetastoreCatalogModule
     @Override
     protected void setup(Binder binder)
     {
+        configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
+
+        // Access the encryption config to mark properties as used
+        buildConfigObject(IcebergEncryptionConfig.class);
+
         binder.bind(HiveMetastoreFactory.class).annotatedWith(RawHiveMetastoreFactory.class).toInstance(HiveMetastoreFactory.ofInstance(metastore, false));
         install(new CachingHiveMetastoreModule());
         binder.bind(IcebergTableOperationsProvider.class).to(FileMetastoreTableOperationsProvider.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoHiveCatalogFactory.class).in(Scopes.SINGLETON);
+        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
 
         configBinder(binder).bindConfigDefaults(CachingHiveMetastoreConfig.class, config -> {
             // ensure caching metastore wrapper isn't created, as it's not leveraged by Iceberg

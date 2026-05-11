@@ -350,7 +350,7 @@ public class IcebergSplitSource
                         .filter(deleteFile -> switch (deleteFile.content()) {
                             case POSITION_DELETES -> partitionDomain.isAll() && pathDomain.isAll() && fileModifiedTimeDomain.isAll();
                             case EQUALITY_DELETES -> tableHandle.getEnforcedPredicate().isAll();
-                            case DATA -> throw new IllegalStateException("Unexpected delete file: " + deleteFile);
+                            default -> throw new IllegalStateException("Unexpected delete file content type: " + deleteFile.content() + " in file: " + deleteFile);
                         })
                         .collect(toImmutableList());
                 scannedFiles.add(new DataFileWithDeleteFiles(wholeFileTask.file(), fullyAppliedDeletes));

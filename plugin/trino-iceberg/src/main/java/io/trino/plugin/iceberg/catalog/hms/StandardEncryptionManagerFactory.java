@@ -51,18 +51,20 @@ public class StandardEncryptionManagerFactory
     {
         requireNonNull(metadata, "metadata is null");
 
-        // Check if table has encryption keys
-        List<EncryptedKey> encryptionKeys = metadata.encryptionKeys();
-        if (encryptionKeys == null || encryptionKeys.isEmpty()) {
-            log.debug("Table %s is not encrypted, no encryption keys found", metadata.metadataFileLocation());
-            return null;
-        }
-
         // Extract table encryption key ID (KEK) from table properties
         // This is the master KEK (typically a KMS key URI) that wraps the table's encryption keys
-        // Following Iceberg's standard: EncryptionUtil.createEncryptionManager reads from properties
         Map<String, String> properties = metadata.properties();
         String tableKeyId = properties.get("encryption.key-id");
+
+        // Check if table has encryption: either via encryption-keys array (Trino-written PARE)
+        // or via encryption.key-id property alone (Spark-written PARE, where DEKs are stored
+        // in each file's avro metadata rather than in the table metadata JSON).
+        List<EncryptedKey> encryptionKeys = metadata.encryptionKeys();
+        boolean hasEncryptionKeys = encryptionKeys != null && !encryptionKeys.isEmpty();
+        if (!hasEncryptionKeys && tableKeyId == null) {
+            log.debug("Table %s is not encrypted", metadata.metadataFileLocation());
+            return null;
+        }
 
         if (tableKeyId == null) {
             log.warn("Table has encryption keys but no encryption.key-id property");
@@ -87,23 +89,21 @@ public class StandardEncryptionManagerFactory
             log.info("No encryption.data-key-length property found, using default: %d bytes", DEFAULT_DATA_KEY_LENGTH);
         }
 
+        List<EncryptedKey> keys = (encryptionKeys != null) ? encryptionKeys : List.of();
         log.info("Creating StandardEncryptionManager for table with %d encryption keys, table key ID: %s, data key length: %d bytes",
-                encryptionKeys.size(), tableKeyId, dataKeyLength);
+                keys.size(), tableKeyId, dataKeyLength);
 
         // Create hierarchical KMS client that handles keys wrapped by other keys
-        KeyManagementClient kmsClient = createKmsClient(encryptionKeys, tableKeyId);
+        KeyManagementClient kmsClient = createKmsClient(keys, tableKeyId);
 
-        // Create StandardEncryptionManager
-        // Parameters:
-        // - encryptionKeys: List of encrypted data keys (DEKs)
-        // - tableKeyId: The table encryption key ID (KEK) used to wrap DEKs
-        // - dataKeyLength: Length of data keys in bytes (read from table properties)
-        // - kmsClient: Hierarchical KMS client for wrap/unwrap operations
-        return new StandardEncryptionManager(
-                encryptionKeys,
-                tableKeyId,
-                dataKeyLength,
-                kmsClient);
+        // For Spark-written PARE tables (no encryption-keys array), use the simpler constructor.
+        // DEKs are stored in each file's avro metadata and decrypted on demand via kmsClient.
+        if (keys.isEmpty()) {
+            log.info("No encryption-keys in table metadata (Spark-written PARE); using tableKeyId-only constructor");
+            return new StandardEncryptionManager(tableKeyId, dataKeyLength, kmsClient);
+        }
+
+        return new StandardEncryptionManager(keys, tableKeyId, dataKeyLength, kmsClient);
     }
 
     private KeyManagementClient createKmsClient(List<EncryptedKey> encryptionKeys, String tableKeyId)

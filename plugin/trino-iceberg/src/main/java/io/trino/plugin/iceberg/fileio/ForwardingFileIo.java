@@ -23,6 +23,7 @@ import io.trino.spi.TrinoException;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestListFile;
 import org.apache.iceberg.io.BulkDeletionFailureException;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
@@ -135,6 +136,12 @@ public class ForwardingFileIo
     public InputFile newInputFile(ManifestFile manifest)
     {
         return SupportsBulkOperations.super.newInputFile(manifest);
+    }
+
+    @Override
+    public InputFile newInputFile(ManifestListFile manifestList)
+    {
+        return SupportsBulkOperations.super.newInputFile(manifestList);
     }
 
     @Override

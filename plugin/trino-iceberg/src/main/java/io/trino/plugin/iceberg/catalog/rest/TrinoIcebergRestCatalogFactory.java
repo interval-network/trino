@@ -24,7 +24,9 @@ import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.IcebergFileSystemFactory;
 import io.trino.plugin.iceberg.catalog.TrinoCatalog;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
 import io.trino.plugin.iceberg.catalog.rest.IcebergRestCatalogConfig.SessionType;
+import org.apache.iceberg.rest.EncryptionAwareRESTSessionCatalog;
 import io.trino.plugin.iceberg.fileio.ForwardingFileIoFactory;
 import io.trino.spi.NodeVersion;
 import io.trino.spi.catalog.CatalogName;
@@ -34,7 +36,6 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.HTTPClient;
-import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.RESTUtil;
 
 import java.net.URI;
@@ -53,6 +54,7 @@ public class TrinoIcebergRestCatalogFactory
 {
     private final IcebergFileSystemFactory fileSystemFactory;
     private final ForwardingFileIoFactory fileIoFactory;
+    private final EncryptionManagerFactory encryptionManagerFactory;
     private final CatalogName catalogName;
     private final String trinoVersion;
     private final URI serverUri;
@@ -71,12 +73,13 @@ public class TrinoIcebergRestCatalogFactory
     private final Cache<TableIdentifier, TableIdentifier> remoteTableMappingCache;
 
     @GuardedBy("this")
-    private RESTSessionCatalog icebergCatalog;
+    private EncryptionAwareRESTSessionCatalog icebergCatalog;
 
     @Inject
     public TrinoIcebergRestCatalogFactory(
             IcebergFileSystemFactory fileSystemFactory,
             ForwardingFileIoFactory fileIoFactory,
+            EncryptionManagerFactory encryptionManagerFactory,
             CatalogName catalogName,
             IcebergRestCatalogConfig restConfig,
             SecurityProperties securityProperties,
@@ -86,6 +89,7 @@ public class TrinoIcebergRestCatalogFactory
     {
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.fileIoFactory = requireNonNull(fileIoFactory, "fileIoFactory is null");
+        this.encryptionManagerFactory = requireNonNull(encryptionManagerFactory, "encryptionManagerFactory is null");
         this.catalogName = requireNonNull(catalogName, "catalogName is null");
         this.trinoVersion = requireNonNull(nodeVersion, "nodeVersion is null").toString();
         requireNonNull(restConfig, "restConfig is null");
@@ -131,7 +135,7 @@ public class TrinoIcebergRestCatalogFactory
                 properties.put("header.X-Iceberg-Access-Delegation", "vended-credentials");
             }
 
-            RESTSessionCatalog icebergCatalogInstance = new RESTSessionCatalog(
+            EncryptionAwareRESTSessionCatalog icebergCatalogInstance = new EncryptionAwareRESTSessionCatalog(
                     config -> HTTPClient.builder(config)
                             .uri(config.get(CatalogProperties.URI))
                             .withHeaders(RESTUtil.configHeaders(config))
@@ -141,7 +145,8 @@ public class TrinoIcebergRestCatalogFactory
                                 ? ((ConnectorIdentity) context.wrappedIdentity())
                                 : ConnectorIdentity.ofUser("fake");
                         return fileIoFactory.create(fileSystemFactory.create(currentIdentity, config), true, config);
-                    });
+                    },
+                    encryptionManagerFactory);
             icebergCatalogInstance.initialize(catalogName.toString(), properties.buildOrThrow());
 
             icebergCatalog = icebergCatalogInstance;
