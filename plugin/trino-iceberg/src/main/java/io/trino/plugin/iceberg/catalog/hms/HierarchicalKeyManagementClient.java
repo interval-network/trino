@@ -17,7 +17,6 @@ import io.airlift.log.Logger;
 import org.apache.iceberg.encryption.Ciphers;
 import org.apache.iceberg.encryption.EncryptedKey;
 import org.apache.iceberg.encryption.KeyManagementClient;
-import org.apache.iceberg.gcp.GcpKeyManagementClient;
 import org.apache.iceberg.util.ByteBuffers;
 
 import java.nio.ByteBuffer;
@@ -27,7 +26,7 @@ import java.util.Map;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Wrapper around GcpKeyManagementClient that handles hierarchical key unwrapping.
+ * Wrapper around a {@link KeyManagementClient} that handles hierarchical key unwrapping.
  *
  * In hierarchical key structures, some keys are wrapped by other keys rather than
  * directly by the KMS KEK. This client detects such keys and unwraps them using
@@ -40,12 +39,12 @@ public class HierarchicalKeyManagementClient
     private static final Logger log = Logger.get(HierarchicalKeyManagementClient.class);
     private static final String KEY_TIMESTAMP = "KEY_TIMESTAMP";
 
-    private final GcpKeyManagementClient kmsClient;
+    private final KeyManagementClient kmsClient;
     private final Map<String, EncryptedKey> encryptionKeys;
     private final String tableKeyId;
 
     public HierarchicalKeyManagementClient(
-            GcpKeyManagementClient kmsClient,
+            KeyManagementClient kmsClient,
             Map<String, EncryptedKey> encryptionKeys,
             String tableKeyId)
     {
