@@ -78,6 +78,7 @@ import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorS
 import static io.trino.metastore.cache.CachingHiveMetastore.createPerTransactionCache;
 import static io.trino.plugin.iceberg.IcebergSplitSource.createFileStatisticsDomain;
 import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
+import static io.trino.plugin.iceberg.IcebergTestUtils.TEST_ENCRYPTION_MANAGER_FACTORY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.getFileSystemFactory;
 import static io.trino.plugin.iceberg.IcebergTestUtils.getHiveMetastore;
 import static io.trino.plugin.iceberg.util.EqualityDeleteUtils.writeEqualityDeleteForTable;
@@ -125,7 +126,7 @@ public class TestIcebergSplitSource
                 fileSystemFactory,
                 FILE_IO_FACTORY,
                 TESTING_TYPE_MANAGER,
-                new FileMetastoreTableOperationsProvider(fileSystemFactory, FILE_IO_FACTORY),
+                new FileMetastoreTableOperationsProvider(fileSystemFactory, FILE_IO_FACTORY, TEST_ENCRYPTION_MANAGER_FACTORY),
                 false,
                 false,
                 false,

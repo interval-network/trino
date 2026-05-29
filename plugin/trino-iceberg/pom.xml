@@ -16,11 +16,32 @@
 
     <properties>
         <!-- Nessie version (compatible with Iceberg release) must be bumped along with Iceberg version bump to avoid compatibility issues -->
-        <dep.nessie.version>0.106.0</dep.nessie.version>
+        <dep.nessie.version>0.107.5</dep.nessie.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Override dependency versions for Iceberg 1.11.0-SNAPSHOT compatibility -->
+            <dependency>
+                <groupId>net.snowflake</groupId>
+                <artifactId>snowflake-jdbc</artifactId>
+                <version>3.28.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.client5</groupId>
+                <artifactId>httpclient5</artifactId>
+                <version>5.6.1</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.core5</groupId>
+                <artifactId>httpcore5</artifactId>
+                <version>5.4</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.core5</groupId>
+                <artifactId>httpcore5-h2</artifactId>
+                <version>5.4</version>
+            </dependency>
             <dependency>
                 <groupId>org.jboss.resteasy</groupId>
                 <artifactId>resteasy-core</artifactId>
@@ -227,6 +248,11 @@
 
         <dependency>
             <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-gcp</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-nessie</artifactId>
             <version>${dep.iceberg.version}</version>
         </dependency>
@@ -375,6 +401,22 @@
             <groupId>org.openjdk.jol</groupId>
             <artifactId>jol-core</artifactId>
             <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-kms</artifactId>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.guava</groupId>
+                    <artifactId>listenablefuture</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>javax.annotation</groupId>
+                    <artifactId>javax.annotation-api</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -712,6 +754,7 @@
                             <ignoredNonTestScopedDependency>org.apache.parquet:parquet-common</ignoredNonTestScopedDependency>
                             <ignoredNonTestScopedDependency>software.amazon.awssdk:aws-core</ignoredNonTestScopedDependency>
                             <ignoredNonTestScopedDependency>software.amazon.awssdk:utils</ignoredNonTestScopedDependency>
+                            <ignoredNonTestScopedDependency>com.google.cloud:google-cloud-kms</ignoredNonTestScopedDependency>
                         </ignoredNonTestScopedDependencies>
                     </configuration>
                 </plugin>
@@ -731,6 +774,18 @@
                         <ignoredResourcePattern>mozilla/public-suffix-list.txt</ignoredResourcePattern>
                         <ignoredResourcePattern>mime.types</ignoredResourcePattern>
                     </ignoredResourcePatterns>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <configuration>
+                    <ignoredNonTestScopedDependencies>
+                        <ignoredNonTestScopedDependency>org.apache.parquet:parquet-common</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>software.amazon.awssdk:aws-core</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>software.amazon.awssdk:utils</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>com.google.cloud:google-cloud-kms</ignoredNonTestScopedDependency>
+                    </ignoredNonTestScopedDependencies>
                 </configuration>
             </plugin>
         </plugins>

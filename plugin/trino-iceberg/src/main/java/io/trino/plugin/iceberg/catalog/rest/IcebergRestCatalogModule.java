@@ -19,6 +19,9 @@ import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.IcebergFileSystemFactory;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
+import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
+import io.trino.plugin.iceberg.catalog.hms.StandardEncryptionManagerFactory;
 import io.trino.plugin.iceberg.catalog.rest.IcebergRestCatalogConfig.Security;
 import io.trino.spi.TrinoException;
 
@@ -34,6 +37,10 @@ public class IcebergRestCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergRestCatalogConfig.class);
+
+        // Mark encryption config properties as used (binding is in IcebergModule)
+        buildConfigObject(IcebergEncryptionConfig.class);
+
         install(conditionalModule(
                 IcebergRestCatalogConfig.class,
                 config -> config.getSecurity() == Security.OAUTH2,
@@ -47,6 +54,7 @@ public class IcebergRestCatalogModule
                 config -> config.getSecurity() == Security.NONE,
                 new NoneSecurityModule()));
 
+        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoIcebergRestCatalogFactory.class).in(Scopes.SINGLETON);
         newOptionalBinder(binder, IcebergFileSystemFactory.class).setBinding().to(IcebergRestCatalogFileSystemFactory.class).in(Scopes.SINGLETON);
 

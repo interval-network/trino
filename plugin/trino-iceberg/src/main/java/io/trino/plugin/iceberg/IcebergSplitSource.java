@@ -350,7 +350,7 @@ public class IcebergSplitSource
                         .filter(deleteFile -> switch (deleteFile.content()) {
                             case POSITION_DELETES -> partitionDomain.isAll() && pathDomain.isAll() && fileModifiedTimeDomain.isAll();
                             case EQUALITY_DELETES -> tableHandle.getEnforcedPredicate().isAll();
-                            case DATA -> throw new IllegalStateException("Unexpected delete file: " + deleteFile);
+                            default -> throw new IllegalStateException("Unexpected delete file content type: " + deleteFile.content() + " in file: " + deleteFile);
                         })
                         .collect(toImmutableList());
                 scannedFiles.add(new DataFileWithDeleteFiles(wholeFileTask.file(), fullyAppliedDeletes));
@@ -715,6 +715,15 @@ public class IcebergSplitSource
                     .toList());
         }
 
+        // Extract key metadata for encrypted files
+        Optional<byte[]> keyMetadata = Optional.empty();
+        if (task.file().keyMetadata() != null) {
+            java.nio.ByteBuffer keyMetadataBuffer = task.file().keyMetadata();
+            byte[] keyMetadataBytes = new byte[keyMetadataBuffer.remaining()];
+            keyMetadataBuffer.duplicate().get(keyMetadataBytes);
+            keyMetadata = Optional.of(keyMetadataBytes);
+        }
+
         return new IcebergSplit(
                 task.file().location(),
                 task.start(),
@@ -732,7 +741,8 @@ public class IcebergSplitSource
                 taskWithDomain.fileStatisticsDomain(),
                 fileIoProperties,
                 cachingHostAddressProvider.getHosts(getSplitKey(task.file().location(), task.start(), task.length()), ImmutableList.of()),
-                task.file().dataSequenceNumber());
+                task.file().dataSequenceNumber(),
+                keyMetadata);
     }
 
     private double getSplitWeight(FileScanTask task)

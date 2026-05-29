@@ -13,7 +13,9 @@
  */
 package io.trino.plugin.iceberg.catalog.hms;
 
+import com.google.common.cache.Cache;
 import com.google.inject.Inject;
+import io.trino.cache.EvictableCacheBuilder;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.hive.metastore.thrift.ThriftMetastoreFactory;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperations;
@@ -33,18 +35,28 @@ public class HiveMetastoreTableOperationsProvider
     private final TrinoFileSystemFactory fileSystemFactory;
     private final ForwardingFileIoFactory fileIoFactory;
     private final ThriftMetastoreFactory thriftMetastoreFactory;
+    private final EncryptionManagerFactory encryptionManagerFactory;
     private final boolean lockingEnabled;
+
+    // Cache DynamicEncryptionManager instances per table so all TableOperations for the same
+    // table share encryption state across planning and split-generation threads. Bounded to
+    // prevent unbounded growth in deployments with large numbers of distinct tables.
+    private final Cache<TableKey, DynamicEncryptionManager> encryptionManagerCache = EvictableCacheBuilder.newBuilder()
+            .maximumSize(10_000)
+            .build();
 
     @Inject
     public HiveMetastoreTableOperationsProvider(
             TrinoFileSystemFactory fileSystemFactory,
             ForwardingFileIoFactory fileIoFactory,
             ThriftMetastoreFactory thriftMetastoreFactory,
+            EncryptionManagerFactory encryptionManagerFactory,
             IcebergHiveCatalogConfig metastoreConfig)
     {
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.fileIoFactory = requireNonNull(fileIoFactory, "fileIoFactory is null");
         this.thriftMetastoreFactory = requireNonNull(thriftMetastoreFactory, "thriftMetastoreFactory is null");
+        this.encryptionManagerFactory = requireNonNull(encryptionManagerFactory, "encryptionManagerFactory is null");
         this.lockingEnabled = metastoreConfig.getLockingEnabled();
     }
 
@@ -57,15 +69,40 @@ public class HiveMetastoreTableOperationsProvider
             Optional<String> owner,
             Optional<String> location)
     {
+        // Get or create a shared DynamicEncryptionManager for this table
+        // This ensures all TableOperations instances for the same table share encryption state
+        TableKey key = new TableKey(database, table);
+        DynamicEncryptionManager sharedEncryptionManager;
+        try {
+            sharedEncryptionManager = encryptionManagerCache.get(key, DynamicEncryptionManager::new);
+        }
+        catch (Exception e) {
+            throw new RuntimeException("Failed to get encryption manager for table " + key, e);
+        }
+
         return new HiveMetastoreTableOperations(
                 fileIoFactory.create(fileSystemFactory.create(session), isUseFileSizeFromMetadata(session)),
                 ((TrinoHiveCatalog) catalog).getMetastore(),
+                encryptionManagerFactory,
                 thriftMetastoreFactory.createMetastore(Optional.of(session.getIdentity())),
                 lockingEnabled,
                 session,
                 database,
                 table,
                 owner,
-                location);
+                location,
+                sharedEncryptionManager);
+    }
+
+    /**
+     * Key for caching DynamicEncryptionManager instances per table.
+     */
+    private record TableKey(String database, String table)
+    {
+        private TableKey
+        {
+            requireNonNull(database, "database is null");
+            requireNonNull(table, "table is null");
+        }
     }
 }

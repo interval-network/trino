@@ -17,8 +17,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.plugin.iceberg.ForIcebergFileDelete;
+import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
 import org.apache.iceberg.io.FileIO;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
@@ -27,11 +29,15 @@ import static java.util.Objects.requireNonNull;
 public class ForwardingFileIoFactory
 {
     private final ExecutorService deleteExecutor;
+    private final IcebergEncryptionConfig encryptionConfig;
 
     @Inject
-    public ForwardingFileIoFactory(@ForIcebergFileDelete ExecutorService deleteExecutor)
+    public ForwardingFileIoFactory(
+            @ForIcebergFileDelete ExecutorService deleteExecutor,
+            IcebergEncryptionConfig encryptionConfig)
     {
         this.deleteExecutor = requireNonNull(deleteExecutor, "deleteExecutor is null");
+        this.encryptionConfig = requireNonNull(encryptionConfig, "encryptionConfig is null");
     }
 
     public FileIO create(TrinoFileSystem fileSystem)
@@ -51,6 +57,17 @@ public class ForwardingFileIoFactory
 
     public FileIO create(TrinoFileSystem fileSystem, boolean useFileSizeFromMetadata, Map<String, String> properties)
     {
-        return new ForwardingFileIo(fileSystem, properties, useFileSizeFromMetadata, deleteExecutor);
+        // Add encryption properties if configured at catalog level
+        Map<String, String> effectiveProperties = new HashMap<>(properties);
+        if (encryptionConfig.getKmsImpl() != null && !encryptionConfig.getKmsImpl().isEmpty()) {
+            effectiveProperties.put("encryption.kms-impl", encryptionConfig.getKmsImpl());
+        }
+        if (encryptionConfig.getKmsKeyUri() != null && !encryptionConfig.getKmsKeyUri().isEmpty()) {
+            effectiveProperties.put("encryption.kms.key-uri", encryptionConfig.getKmsKeyUri());
+        }
+
+        // ForwardingFileIo will pass these properties through to Iceberg's FileIO system
+        // Iceberg will automatically handle encryption/decryption using table metadata
+        return new ForwardingFileIo(fileSystem, effectiveProperties, useFileSizeFromMetadata, deleteExecutor);
     }
 }

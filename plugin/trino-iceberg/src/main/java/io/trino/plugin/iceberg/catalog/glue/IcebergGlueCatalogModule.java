@@ -21,6 +21,9 @@ import io.trino.plugin.hive.metastore.glue.GlueMetastoreModule;
 import io.trino.plugin.iceberg.catalog.IcebergHiveMetastoreModule;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
+import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
+import io.trino.plugin.iceberg.catalog.hms.StandardEncryptionManagerFactory;
 
 import static io.airlift.configuration.ConfigBinder.configBinder;
 import static org.weakref.jmx.guice.ExportBinder.newExporter;
@@ -33,6 +36,8 @@ public class IcebergGlueCatalogModule
     {
         configBinder(binder).bindConfigDefaults(GlueHiveMetastoreConfig.class, config -> config.setSkipArchive(true));
         configBinder(binder).bindConfig(IcebergGlueCatalogConfig.class);
+        buildConfigObject(IcebergEncryptionConfig.class);
+        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
         binder.bind(IcebergTableOperationsProvider.class).to(GlueIcebergTableOperationsProvider.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoGlueCatalogFactory.class).in(Scopes.SINGLETON);
         newExporter(binder).export(TrinoCatalogFactory.class).withGeneratedName();

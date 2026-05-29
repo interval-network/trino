@@ -20,6 +20,7 @@ import io.trino.metastore.Table;
 import io.trino.metastore.cache.CachingHiveMetastore;
 import io.trino.plugin.hive.metastore.MetastoreUtil;
 import io.trino.plugin.iceberg.catalog.hms.AbstractMetastoreTableOperations;
+import io.trino.plugin.iceberg.catalog.hms.DynamicEncryptionManager;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
 import org.apache.iceberg.TableMetadata;
@@ -44,13 +45,28 @@ public class FileMetastoreTableOperations
     public FileMetastoreTableOperations(
             FileIO fileIo,
             CachingHiveMetastore metastore,
+            io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory encryptionManagerFactory,
             ConnectorSession session,
             String database,
             String table,
             Optional<String> owner,
             Optional<String> location)
     {
-        super(fileIo, metastore, session, database, table, owner, location);
+        super(fileIo, metastore, encryptionManagerFactory, session, database, table, owner, location);
+    }
+
+    public FileMetastoreTableOperations(
+            FileIO fileIo,
+            CachingHiveMetastore metastore,
+            io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory encryptionManagerFactory,
+            ConnectorSession session,
+            String database,
+            String table,
+            Optional<String> owner,
+            Optional<String> location,
+            DynamicEncryptionManager sharedEncryptionManager)
+    {
+        super(fileIo, metastore, encryptionManagerFactory, session, database, table, owner, location, sharedEncryptionManager);
     }
 
     @Override

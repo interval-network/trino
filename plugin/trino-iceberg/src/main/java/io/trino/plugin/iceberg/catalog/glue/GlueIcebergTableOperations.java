@@ -143,7 +143,7 @@ public class GlueIcebergTableOperations
                      InvalidInputException _,
                      ResourceNumberLimitExceededException _ ->
                     // clean up metadata files corresponding to the current transaction
-                        fileIo.deleteFile(newMetadataLocation);
+                        baseFileIo.deleteFile(newMetadataLocation);
                 default -> {}
             }
             throw new TrinoException(ICEBERG_COMMIT_ERROR, "Cannot commit table creation", e);

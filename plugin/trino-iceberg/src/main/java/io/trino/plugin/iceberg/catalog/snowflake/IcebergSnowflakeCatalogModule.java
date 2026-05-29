@@ -20,6 +20,9 @@ import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.IcebergFileFormat;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
+import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
+import io.trino.plugin.iceberg.catalog.hms.StandardEncryptionManagerFactory;
 import org.apache.iceberg.snowflake.TrinoIcebergSnowflakeCatalogFactory;
 
 import static io.airlift.configuration.ConfigBinder.configBinder;
@@ -31,6 +34,8 @@ public class IcebergSnowflakeCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergSnowflakeCatalogConfig.class);
+        buildConfigObject(IcebergEncryptionConfig.class);
+        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
         binder.bind(IcebergTableOperationsProvider.class).to(SnowflakeIcebergTableOperationsProvider.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoIcebergSnowflakeCatalogFactory.class).in(Scopes.SINGLETON);
 

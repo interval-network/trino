@@ -20,6 +20,9 @@ import io.trino.plugin.hive.metastore.file.FileMetastoreModule;
 import io.trino.plugin.iceberg.catalog.IcebergHiveMetastoreModule;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
+import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
+import io.trino.plugin.iceberg.catalog.hms.StandardEncryptionManagerFactory;
 import io.trino.plugin.iceberg.catalog.hms.TrinoHiveCatalogFactory;
 
 public class IcebergFileMetastoreCatalogModule
@@ -28,8 +31,12 @@ public class IcebergFileMetastoreCatalogModule
     @Override
     protected void setup(Binder binder)
     {
+        // Mark encryption config properties as used (binding is in IcebergModule)
+        buildConfigObject(IcebergEncryptionConfig.class);
+
         binder.bind(IcebergTableOperationsProvider.class).to(FileMetastoreTableOperationsProvider.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoHiveCatalogFactory.class).in(Scopes.SINGLETON);
+        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
 
         install(new IcebergHiveMetastoreModule());
         install(new FileMetastoreModule());

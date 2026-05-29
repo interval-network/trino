@@ -17,6 +17,7 @@ import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.local.LocalFileSystemFactory;
 import io.trino.metastore.HiveMetastore;
+import io.trino.plugin.iceberg.IcebergTestUtils;
 import io.trino.plugin.iceberg.fileio.ForwardingFileIo;
 import org.apache.iceberg.io.InputFile;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,7 @@ public class TestAbstractIcebergTableOperations
                     }
                 },
                 createPerTransactionCache(metastore, 1000),
+                IcebergTestUtils.TEST_ENCRYPTION_MANAGER_FACTORY,
                 SESSION,
                 "test-database",
                 "test-table",

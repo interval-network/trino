@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
@@ -40,6 +41,8 @@ import io.trino.parquet.ParquetCorruptionException;
 import io.trino.parquet.ParquetDataSource;
 import io.trino.parquet.ParquetDataSourceId;
 import io.trino.parquet.ParquetReaderOptions;
+import io.trino.parquet.crypto.FileDecryptionContext;
+import io.trino.parquet.crypto.FileDecryptionProperties;
 import io.trino.parquet.metadata.FileMetadata;
 import io.trino.parquet.metadata.ParquetMetadata;
 import io.trino.parquet.predicate.TupleDomainParquetPredicate;
@@ -199,6 +202,7 @@ import static org.joda.time.DateTimeZone.UTC;
 public class IcebergPageSourceProvider
         implements ConnectorPageSourceProvider
 {
+    private static final Logger log = Logger.get(IcebergPageSourceProvider.class);
     private static final String AVRO_FIELD_ID = "field-id";
 
     // This is used whenever a query doesn't reference any data columns.
@@ -209,6 +213,7 @@ public class IcebergPageSourceProvider
 
     private final IcebergFileSystemFactory fileSystemFactory;
     private final ForwardingFileIoFactory fileIoFactory;
+    private final io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory encryptionManagerFactory;
     private final FileFormatDataSourceStats fileFormatDataSourceStats;
     private final OrcReaderOptions orcReaderOptions;
     private final ParquetReaderOptions parquetReaderOptions;
@@ -220,6 +225,7 @@ public class IcebergPageSourceProvider
     public IcebergPageSourceProvider(
             IcebergFileSystemFactory fileSystemFactory,
             ForwardingFileIoFactory fileIoFactory,
+            io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory encryptionManagerFactory,
             FileFormatDataSourceStats fileFormatDataSourceStats,
             OrcReaderOptions orcReaderOptions,
             ParquetReaderOptions parquetReaderOptions,
@@ -227,6 +233,7 @@ public class IcebergPageSourceProvider
     {
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.fileIoFactory = requireNonNull(fileIoFactory, "fileIoFactory is null");
+        this.encryptionManagerFactory = requireNonNull(encryptionManagerFactory, "encryptionManagerFactory is null");
         this.fileFormatDataSourceStats = requireNonNull(fileFormatDataSourceStats, "fileFormatDataSourceStats is null");
         this.orcReaderOptions = requireNonNull(orcReaderOptions, "orcReaderOptions is null");
         this.parquetReaderOptions = requireNonNull(parquetReaderOptions, "parquetReaderOptions is null");
@@ -244,10 +251,33 @@ public class IcebergPageSourceProvider
             DynamicFilter dynamicFilter)
     {
         if (connectorSplit instanceof FilesTableSplit filesTableSplit) {
+            org.apache.iceberg.io.FileIO manifestFileIO = fileIoFactory.create(
+                    fileSystemFactory.create(session.getIdentity(), filesTableSplit.fileIoProperties()));
+            // Wrap with encryption-aware FileIO if the table uses PARE encryption.
+            // The regular scan path gets this via TrinoEncryptingFileIO wired at the catalog level
+            // (AbstractMetastoreTableOperations / EncryptionAwareRESTSessionCatalog), but the
+            // FilesTablePageSource constructs its own FileIO from scratch. Without the wrapper it
+            // opens the encrypted Avro manifest, sees the PARE envelope, and throws
+            // InvalidAvroMagicException — causing discovery to report 0 tables.
+            if (filesTableSplit.tableMetadataJson().isPresent()) {
+                org.apache.iceberg.TableMetadata tableMetadata = org.apache.iceberg.TableMetadataParser.fromJson(filesTableSplit.tableMetadataJson().get());
+                String tableKeyId = tableMetadata.properties().get("encryption.key-id");
+                int encKeyCount = tableMetadata.encryptionKeys() != null ? tableMetadata.encryptionKeys().size() : 0;
+                log.debug("$files split: manifest=%s keyId=%s encryptionKeyCount=%d", filesTableSplit.manifestFile().path(), tableKeyId, encKeyCount);
+                org.apache.iceberg.io.FileIO finalManifestFileIO = manifestFileIO;
+                manifestFileIO = encryptionManagerFactory.create(tableMetadata)
+                        .map(manager -> (org.apache.iceberg.io.FileIO) org.apache.iceberg.encryption.TrinoEncryptingFileIO.wrap(
+                                new io.trino.plugin.iceberg.catalog.hms.PropertyExposingFileIO(finalManifestFileIO),
+                                manager,
+                                finalManifestFileIO))
+                        .orElse(manifestFileIO);
+            }
+            else {
+                log.debug("$files split: tableMetadataJson is empty for manifest=%s; no encryption wrapping", filesTableSplit.manifestFile().path());
+            }
             return new FilesTablePageSource(
                     typeManager,
-                    fileSystemFactory.create(session.getIdentity(), filesTableSplit.fileIoProperties()),
-                    fileIoFactory,
+                    manifestFileIO,
                     columns.stream().map(SystemColumnHandle.class::cast).map(SystemColumnHandle::columnName).collect(toImmutableList()),
                     filesTableSplit);
         }
@@ -282,7 +312,8 @@ public class IcebergPageSourceProvider
                 split.getFileFormat(),
                 split.getFileIoProperties(),
                 split.getDataSequenceNumber(),
-                tableHandle.getNameMappingJson().map(NameMappingParser::fromJson));
+                tableHandle.getNameMappingJson().map(NameMappingParser::fromJson),
+                split.getKeyMetadata());
     }
 
     public ConnectorPageSource createPageSource(
@@ -304,7 +335,8 @@ public class IcebergPageSourceProvider
             IcebergFileFormat fileFormat,
             Map<String, String> fileIoProperties,
             long dataSequenceNumber,
-            Optional<NameMapping> nameMapping)
+            Optional<NameMapping> nameMapping,
+            Optional<byte[]> keyMetadata)
     {
         Map<Integer, Optional<String>> partitionKeys = getPartitionKeys(partitionData, partitionSpec);
         TupleDomain<IcebergColumnHandle> effectivePredicate = getUnenforcedPredicate(
@@ -359,7 +391,8 @@ public class IcebergPageSourceProvider
                 effectivePredicate,
                 nameMapping,
                 partition,
-                partitionKeys);
+                partitionKeys,
+                keyMetadata);
 
         ConnectorPageSource pageSource = readerPageSourceWithRowPositions.pageSource();
 
@@ -499,7 +532,8 @@ public class IcebergPageSourceProvider
                 tupleDomain,
                 Optional.empty(),
                 "",
-                ImmutableMap.of())
+                ImmutableMap.of(),
+                Optional.empty())
                 .pageSource();
     }
 
@@ -517,7 +551,8 @@ public class IcebergPageSourceProvider
             TupleDomain<IcebergColumnHandle> predicate,
             Optional<NameMapping> nameMapping,
             String partition,
-            Map<Integer, Optional<String>> partitionKeys)
+            Map<Integer, Optional<String>> partitionKeys,
+            Optional<byte[]> keyMetadata)
     {
         return switch (fileFormat) {
             case ORC -> createOrcPageSource(
@@ -564,7 +599,8 @@ public class IcebergPageSourceProvider
                     fileFormatDataSourceStats,
                     nameMapping,
                     partition,
-                    partitionKeys);
+                    partitionKeys,
+                    keyMetadata);
             case AVRO -> createAvroPageSource(
                     inputFile,
                     start,
@@ -910,14 +946,19 @@ public class IcebergPageSourceProvider
             FileFormatDataSourceStats fileFormatDataSourceStats,
             Optional<NameMapping> nameMapping,
             String partition,
-            Map<Integer, Optional<String>> partitionKeys)
+            Map<Integer, Optional<String>> partitionKeys,
+            Optional<byte[]> keyMetadata)
     {
         AggregatedMemoryContext memoryContext = newSimpleAggregatedMemoryContext();
 
         ParquetDataSource dataSource = null;
         try {
+            // Create Parquet decryption properties from Iceberg key metadata
+            Optional<FileDecryptionProperties> decryptionProperties =
+                    ParquetEncryptionHelper.createDecryptionProperties(keyMetadata);
+
             dataSource = createDataSource(inputFile, OptionalLong.of(fileSize), options, memoryContext, fileFormatDataSourceStats);
-            ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, options.getMaxFooterReadSize(), Optional.empty());
+            ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, options.getMaxFooterReadSize(), decryptionProperties);
             FileMetadata fileMetaData = parquetMetadata.getFileMetaData();
             MessageType fileSchema = fileMetaData.getSchema();
             if (nameMapping.isPresent() && !ParquetSchemaUtil.hasIds(fileSchema)) {
@@ -1017,6 +1058,10 @@ public class IcebergPageSourceProvider
                     options);
 
             ParquetDataSourceId dataSourceId = dataSource.getId();
+
+            // Extract decryption context from metadata (created during footer reading)
+            Optional<FileDecryptionContext> decryptionContext = parquetMetadata.getDecryptionContext();
+
             ParquetReader parquetReader = new ParquetReader(
                     Optional.ofNullable(fileMetaData.getCreatedBy()),
                     parquetColumnFieldsBuilder.build(),
@@ -1029,7 +1074,7 @@ public class IcebergPageSourceProvider
                     exception -> handleException(dataSourceId, exception),
                     Optional.empty(),
                     Optional.empty(),
-                    Optional.empty());
+                    decryptionContext);
 
             ConnectorPageSource pageSource = new ParquetPageSource(parquetReader);
             pageSource = transforms.build(pageSource);
