@@ -23,8 +23,10 @@ import io.trino.plugin.iceberg.catalog.hms.TrinoHiveCatalog;
 import io.trino.plugin.iceberg.fileio.ForwardingFileIoFactory;
 import io.trino.spi.connector.ConnectorSession;
 
+import com.google.common.cache.Cache;
+import io.trino.cache.EvictableCacheBuilder;
+
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isUseFileSizeFromMetadata;
 import static java.util.Objects.requireNonNull;
@@ -36,10 +38,12 @@ public class FileMetastoreTableOperationsProvider
     private final ForwardingFileIoFactory fileIoFactory;
     private final io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory encryptionManagerFactory;
 
-    // Cache DynamicEncryptionManager instances per table to ensure all TableOperations
-    // for the same table share the same instance. This allows encryption state to be
-    // shared across query planning and split generation threads.
-    private final ConcurrentHashMap<TableKey, DynamicEncryptionManager> encryptionManagerCache = new ConcurrentHashMap<>();
+    // Cache DynamicEncryptionManager instances per table so all TableOperations for the same
+    // table share encryption state across planning and split-generation threads. Bounded to
+    // prevent unbounded growth in deployments with large numbers of distinct tables.
+    private final Cache<TableKey, DynamicEncryptionManager> encryptionManagerCache = EvictableCacheBuilder.newBuilder()
+            .maximumSize(10_000)
+            .build();
 
     @Inject
     public FileMetastoreTableOperationsProvider(
@@ -64,9 +68,13 @@ public class FileMetastoreTableOperationsProvider
         // Get or create a shared DynamicEncryptionManager for this table
         // This ensures all TableOperations instances for the same table share encryption state
         TableKey key = new TableKey(database, table);
-        DynamicEncryptionManager sharedEncryptionManager = encryptionManagerCache.computeIfAbsent(
-                key,
-                k -> new DynamicEncryptionManager());
+        DynamicEncryptionManager sharedEncryptionManager;
+        try {
+            sharedEncryptionManager = encryptionManagerCache.get(key, DynamicEncryptionManager::new);
+        }
+        catch (Exception e) {
+            throw new RuntimeException("Failed to get encryption manager for table " + key, e);
+        }
 
         return new FileMetastoreTableOperations(
                 fileIoFactory.create(fileSystemFactory.create(session), isUseFileSizeFromMetadata(session)),

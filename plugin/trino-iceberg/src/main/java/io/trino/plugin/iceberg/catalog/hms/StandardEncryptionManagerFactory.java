@@ -41,18 +41,23 @@ public class StandardEncryptionManagerFactory
     private static final Logger log = Logger.get(StandardEncryptionManagerFactory.class);
     private static final int DEFAULT_DATA_KEY_LENGTH = 16;
 
+    // Null when encryption is not configured (no kms-key-uri); create() returns null in that case.
     private final GcpKeyManagementClient sharedGcpKmsClient;
 
     @Inject
     public StandardEncryptionManagerFactory(IcebergEncryptionConfig encryptionConfig)
     {
-        this(buildAndInitializeKmsClient(encryptionConfig));
+        requireNonNull(encryptionConfig, "encryptionConfig is null");
+        String kmsKeyUri = encryptionConfig.getKmsKeyUri();
+        this.sharedGcpKmsClient = (kmsKeyUri != null && !kmsKeyUri.isBlank())
+                ? buildAndInitializeKmsClient(encryptionConfig)
+                : null;
     }
 
     @VisibleForTesting
     StandardEncryptionManagerFactory(GcpKeyManagementClient sharedGcpKmsClient)
     {
-        this.sharedGcpKmsClient = requireNonNull(sharedGcpKmsClient, "sharedGcpKmsClient is null");
+        this.sharedGcpKmsClient = sharedGcpKmsClient;
     }
 
     @VisibleForTesting
@@ -107,13 +112,17 @@ public class StandardEncryptionManagerFactory
     {
         requireNonNull(metadata, "metadata is null");
 
+        if (sharedGcpKmsClient == null) {
+            return null;
+        }
+
         Map<String, String> properties = metadata.properties();
         String tableKeyId = properties.get("encryption.key-id");
 
         List<EncryptedKey> encryptionKeys = metadata.encryptionKeys();
         boolean hasEncryptionKeys = encryptionKeys != null && !encryptionKeys.isEmpty();
         if (!hasEncryptionKeys && tableKeyId == null) {
-            log.info("Table %s is not encrypted (no encryption.key-id, no encryption-keys)", metadata.metadataFileLocation());
+            log.debug("Table %s is not encrypted (no encryption.key-id, no encryption-keys)", metadata.metadataFileLocation());
             return null;
         }
 
@@ -135,7 +144,7 @@ public class StandardEncryptionManagerFactory
         }
 
         List<EncryptedKey> keys = (encryptionKeys != null) ? encryptionKeys : List.of();
-        log.info("Creating StandardEncryptionManager for table with %d encryption keys, table key ID: %s, data key length: %d bytes",
+        log.debug("Creating StandardEncryptionManager for table with %d encryption keys, table key ID: %s, data key length: %d bytes",
                 keys.size(), tableKeyId, dataKeyLength);
 
         Map<String, EncryptedKey> encryptionKeysMap = new HashMap<>();
@@ -154,7 +163,7 @@ public class StandardEncryptionManagerFactory
                 tableKeyId);
 
         if (keys.isEmpty()) {
-            log.info("No encryption-keys in table metadata (Spark-written PARE); using tableKeyId-only constructor");
+            log.debug("No encryption-keys in table metadata (Spark-written PARE); using tableKeyId-only constructor");
             return new StandardEncryptionManager(tableKeyId, dataKeyLength, kmsClient);
         }
         return new StandardEncryptionManager(keys, tableKeyId, dataKeyLength, kmsClient);

@@ -88,7 +88,7 @@ public class HierarchicalKeyManagementClient
         // Need to:
         // 1. Recursively unwrap the parent key
         // 2. Use AES-GCM to decrypt this key with the parent key
-        log.info("Hierarchical key detected: key %s is wrapped by key %s", keyId, encryptedById);
+        log.debug("Hierarchical key detected: key %s is wrapped by key %s", keyId, encryptedById);
 
         // Get the parent key's encrypted metadata
         EncryptedKey parentKey = encryptionKeys.get(encryptedById);
@@ -115,7 +115,7 @@ public class HierarchicalKeyManagementClient
 
         byte[] unwrappedKeyBytes = decryptor.decrypt(wrappedKeyBytes, aadBytes);
 
-        log.info("Successfully unwrapped hierarchical key %s (wrapped by %s)", keyId, encryptedById);
+        log.debug("Successfully unwrapped hierarchical key %s (wrapped by %s)", keyId, encryptedById);
         return ByteBuffer.wrap(unwrappedKeyBytes);
     }
 

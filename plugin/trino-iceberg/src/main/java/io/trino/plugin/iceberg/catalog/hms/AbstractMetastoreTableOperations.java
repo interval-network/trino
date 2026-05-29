@@ -214,10 +214,21 @@ public abstract class AbstractMetastoreTableOperations
         // Call parent to load metadata - Snapshots will capture DynamicEncryptionManager reference
         super.refreshFromMetadataLocation(newLocation, metadataLoader);
 
-        // After metadata is loaded, check if table is encrypted and upgrade EncryptionManager
-        if (currentMetadata != null && currentMetadata.encryptionKeys() != null && !currentMetadata.encryptionKeys().isEmpty()) {
-            log.info("Table %s is encrypted with %d encryption keys, upgrading EncryptionManager",
-                    getSchemaTableName(), currentMetadata.encryptionKeys().size());
+        // After metadata is loaded, check if table is encrypted and upgrade EncryptionManager.
+        // Check both encryptionKeys() (Trino-written PARE) and encryption.key-id property
+        // (Spark-written PARE, where DEKs live in each file's Avro metadata rather than in
+        // the table metadata JSON).
+        boolean hasEncryptionKeys = currentMetadata != null
+                && currentMetadata.encryptionKeys() != null
+                && !currentMetadata.encryptionKeys().isEmpty();
+        boolean hasEncryptionKeyId = currentMetadata != null
+                && currentMetadata.properties() != null
+                && currentMetadata.properties().containsKey("encryption.key-id");
+        if (hasEncryptionKeys || hasEncryptionKeyId) {
+            log.debug("Table %s is encrypted (encryptionKeys=%d, hasKeyId=%s), upgrading EncryptionManager",
+                    getSchemaTableName(),
+                    hasEncryptionKeys ? currentMetadata.encryptionKeys().size() : 0,
+                    hasEncryptionKeyId);
 
             try {
                 // Create StandardEncryptionManager using the factory
@@ -229,7 +240,7 @@ public abstract class AbstractMetastoreTableOperations
                     // All Snapshots that captured the DynamicEncryptionManager reference
                     // will now use StandardEncryptionManager
                     dynamicEncryptionManager.upgrade(standardEncryptionManager);
-                    log.info("Successfully upgraded EncryptionManager for table %s", getSchemaTableName());
+                    log.debug("Successfully upgraded EncryptionManager for table %s", getSchemaTableName());
                 }
                 else {
                     log.warn("EncryptionManager factory returned null for encrypted table %s", getSchemaTableName());

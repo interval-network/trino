@@ -21,7 +21,9 @@ import com.google.inject.Singleton;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
 import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
+import io.trino.plugin.iceberg.catalog.hms.StandardEncryptionManagerFactory;
 import org.apache.iceberg.nessie.NessieIcebergClient;
 import org.projectnessie.client.NessieClientBuilder;
 import org.projectnessie.client.api.NessieApiV1;
@@ -41,6 +43,7 @@ public class IcebergNessieCatalogModule
     {
         configBinder(binder).bindConfig(IcebergNessieCatalogConfig.class);
         configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
+        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
 
         // Access the encryption config to mark properties as used
         buildConfigObject(IcebergEncryptionConfig.class);
