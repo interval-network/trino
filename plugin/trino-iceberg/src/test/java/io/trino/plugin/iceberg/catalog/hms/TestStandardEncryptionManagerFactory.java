@@ -22,6 +22,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -76,13 +77,13 @@ public class TestStandardEncryptionManagerFactory
                 .setProperties(Map.of("encryption.key-id", "test-key-id"))
                 .build();
 
-        EncryptionManager m1 = factory.create(metadata);
-        EncryptionManager m2 = factory.create(metadata);
-        EncryptionManager m3 = factory.create(metadata);
+        Optional<EncryptionManager> m1 = factory.create(metadata);
+        Optional<EncryptionManager> m2 = factory.create(metadata);
+        Optional<EncryptionManager> m3 = factory.create(metadata);
 
-        assertThat(m1).as("create() must return a manager for encrypted tables").isNotNull();
-        assertThat(m2).isNotNull();
-        assertThat(m3).isNotNull();
+        assertThat(m1).as("create() must return a manager for encrypted tables").isPresent();
+        assertThat(m2).isPresent();
+        assertThat(m3).isPresent();
         assertThat(sharedClient.initializeCalls())
                 .as("create() must never invoke initialize() on the shared client")
                 .isZero();
@@ -104,9 +105,9 @@ public class TestStandardEncryptionManagerFactory
                 "/test/location",
                 Map.of());
 
-        EncryptionManager m = factory.create(plaintext);
+        Optional<EncryptionManager> m = factory.create(plaintext);
 
-        assertThat(m).as("plaintext tables must return null EncryptionManager").isNull();
+        assertThat(m).as("plaintext tables must return empty Optional").isEmpty();
         assertThat(sharedClient.wrapCalls()).isZero();
         assertThat(sharedClient.unwrapCalls()).isZero();
     }
