@@ -106,7 +106,7 @@ public final class IcebergTestUtils
             new DefaultIcebergFileSystemFactory(new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS)));
 
     public static final ForwardingFileIoFactory FILE_IO_FACTORY = new ForwardingFileIoFactory(newDirectExecutorService(), new IcebergEncryptionConfig());
-    public static final io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory TEST_ENCRYPTION_MANAGER_FACTORY = metadata -> null;
+    public static final io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory TEST_ENCRYPTION_MANAGER_FACTORY = metadata -> java.util.Optional.empty();
 
     private IcebergTestUtils() {}
 

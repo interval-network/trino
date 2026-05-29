@@ -136,7 +136,7 @@ public class StandardEncryptionManagerFactory
         if (properties.containsKey("encryption.data-key-length")) {
             try {
                 dataKeyLength = Integer.parseInt(properties.get("encryption.data-key-length"));
-                log.info("Using data key length from table properties: %d bytes", dataKeyLength);
+                log.debug("Using data key length from table properties: %d bytes", dataKeyLength);
             }
             catch (NumberFormatException e) {
                 log.warn("Invalid encryption.data-key-length property value: %s, using default: %d bytes",

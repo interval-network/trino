@@ -78,10 +78,19 @@ public class HierarchicalKeyManagementClient
 
         String encryptedById = encryptedKey.encryptedById();
 
-        // If wrapped directly by tableKeyId (KMS KEK), unwrap with KMS
+        // If wrapped directly by tableKeyId (KMS KEK): KMS-unwrap the intermediate key,
+        // then AES-GCM decrypt the DEK (wrappedKey) with the raw intermediate key.
         if (encryptedById.equals(tableKeyId)) {
-            log.debug("Unwrapping key %s with KMS KEK: %s", keyId, tableKeyId);
-            return kmsClient.unwrapKey(wrappedKey, tableKeyId);
+            log.debug("Unwrapping intermediate key %s via KMS KEK %s, then AES-GCM decrypt DEK", keyId, tableKeyId);
+            ByteBuffer rawIntermKey = kmsClient.unwrapKey(encryptedKey.encryptedKeyMetadata(), tableKeyId);
+            String keyTimestamp = encryptedKey.properties().get(KEY_TIMESTAMP);
+            if (keyTimestamp == null) {
+                throw new IllegalStateException("Key " + keyId + " is missing KEY_TIMESTAMP property");
+            }
+            Ciphers.AesGcmDecryptor decryptor = new Ciphers.AesGcmDecryptor(ByteBuffers.toByteArray(rawIntermKey));
+            byte[] wrappedKeyBytes = ByteBuffers.toByteArray(wrappedKey);
+            byte[] aadBytes = keyTimestamp.getBytes(StandardCharsets.UTF_8);
+            return ByteBuffer.wrap(decryptor.decrypt(wrappedKeyBytes, aadBytes));
         }
 
         // Hierarchical key: wrapped by another key, not directly by KMS
