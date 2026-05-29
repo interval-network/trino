@@ -16,19 +16,15 @@ package io.trino.plugin.iceberg.catalog.hms;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.encryption.EncryptionManager;
 
+import java.util.Optional;
+
 /**
  * Factory for creating EncryptionManager instances from table metadata.
- * This factory is responsible for initializing the appropriate encryption
- * manager based on table's encryption configuration.
  */
 public interface EncryptionManagerFactory
 {
     /**
-     * Creates an EncryptionManager for the given table metadata.
-     * Returns null if the table is not encrypted.
-     *
-     * @param metadata the table metadata containing encryption keys
-     * @return an EncryptionManager instance, or null if table is not encrypted
+     * Returns an EncryptionManager for the given table metadata, or empty if the table is not encrypted.
      */
-    EncryptionManager create(TableMetadata metadata);
+    Optional<EncryptionManager> create(TableMetadata metadata);
 }

@@ -13,7 +13,9 @@
  */
 package io.trino.plugin.iceberg.catalog.file;
 
+import com.google.common.cache.Cache;
 import com.google.inject.Inject;
+import io.trino.cache.EvictableCacheBuilder;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperations;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
@@ -22,9 +24,6 @@ import io.trino.plugin.iceberg.catalog.hms.DynamicEncryptionManager;
 import io.trino.plugin.iceberg.catalog.hms.TrinoHiveCatalog;
 import io.trino.plugin.iceberg.fileio.ForwardingFileIoFactory;
 import io.trino.spi.connector.ConnectorSession;
-
-import com.google.common.cache.Cache;
-import io.trino.cache.EvictableCacheBuilder;
 
 import java.util.Optional;
 

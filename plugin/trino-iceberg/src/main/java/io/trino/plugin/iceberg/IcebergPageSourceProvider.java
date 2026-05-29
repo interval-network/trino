@@ -264,13 +264,13 @@ public class IcebergPageSourceProvider
                 String tableKeyId = tableMetadata.properties().get("encryption.key-id");
                 int encKeyCount = tableMetadata.encryptionKeys() != null ? tableMetadata.encryptionKeys().size() : 0;
                 log.debug("$files split: manifest=%s keyId=%s encryptionKeyCount=%d", filesTableSplit.manifestFile().path(), tableKeyId, encKeyCount);
-                org.apache.iceberg.encryption.EncryptionManager encryptionManager = encryptionManagerFactory.create(tableMetadata);
-                if (encryptionManager != null) {
-                    manifestFileIO = org.apache.iceberg.encryption.TrinoEncryptingFileIO.wrap(
-                            new io.trino.plugin.iceberg.catalog.hms.PropertyExposingFileIO(manifestFileIO),
-                            encryptionManager,
-                            manifestFileIO);
-                }
+                org.apache.iceberg.io.FileIO finalManifestFileIO = manifestFileIO;
+                manifestFileIO = encryptionManagerFactory.create(tableMetadata)
+                        .map(manager -> (org.apache.iceberg.io.FileIO) org.apache.iceberg.encryption.TrinoEncryptingFileIO.wrap(
+                                new io.trino.plugin.iceberg.catalog.hms.PropertyExposingFileIO(finalManifestFileIO),
+                                manager,
+                                finalManifestFileIO))
+                        .orElse(manifestFileIO);
             }
             else {
                 log.debug("$files split: tableMetadataJson is empty for manifest=%s; no encryption wrapping", filesTableSplit.manifestFile().path());

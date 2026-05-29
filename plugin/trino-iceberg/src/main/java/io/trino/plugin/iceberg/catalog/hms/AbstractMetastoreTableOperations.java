@@ -228,20 +228,12 @@ public abstract class AbstractMetastoreTableOperations
                     hasEncryptionKeyId);
 
             try {
-                // Create StandardEncryptionManager using the factory
-                org.apache.iceberg.encryption.EncryptionManager standardEncryptionManager =
-                        encryptionManagerFactory.create(currentMetadata);
-
-                if (standardEncryptionManager != null) {
-                    // Upgrade the DynamicEncryptionManager
-                    // All Snapshots that captured the DynamicEncryptionManager reference
-                    // will now use StandardEncryptionManager
-                    dynamicEncryptionManager.upgrade(standardEncryptionManager);
-                    log.debug("Successfully upgraded EncryptionManager for table %s", getSchemaTableName());
-                }
-                else {
-                    log.warn("EncryptionManager factory returned null for encrypted table %s", getSchemaTableName());
-                }
+                encryptionManagerFactory.create(currentMetadata).ifPresentOrElse(
+                        manager -> {
+                            dynamicEncryptionManager.upgrade(manager);
+                            log.debug("Successfully upgraded EncryptionManager for table %s", getSchemaTableName());
+                        },
+                        () -> log.warn("EncryptionManager factory returned empty for encrypted table %s", getSchemaTableName()));
             }
             catch (Exception e) {
                 log.error(e, "Failed to upgrade EncryptionManager for table %s", getSchemaTableName());

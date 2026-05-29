@@ -42,6 +42,7 @@ public class TrinoEncryptingFileIO
     // Cached effective EncryptingFileIO, invalidated when DynamicEncryptionManager's delegate changes.
     // Uses a single volatile reference to an immutable record so both fields update atomically.
     private record EffectiveState(EncryptionManager delegate, EncryptingFileIO fileIO) {}
+
     private volatile EffectiveState effectiveState;
 
     /**

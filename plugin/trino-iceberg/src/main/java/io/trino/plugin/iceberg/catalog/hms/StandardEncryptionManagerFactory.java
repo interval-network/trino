@@ -26,6 +26,7 @@ import org.apache.iceberg.gcp.GcpKeyManagementClient;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -108,12 +109,12 @@ public class StandardEncryptionManagerFactory
     }
 
     @Override
-    public EncryptionManager create(TableMetadata metadata)
+    public Optional<EncryptionManager> create(TableMetadata metadata)
     {
         requireNonNull(metadata, "metadata is null");
 
         if (sharedGcpKmsClient == null) {
-            return null;
+            return Optional.empty();
         }
 
         Map<String, String> properties = metadata.properties();
@@ -123,12 +124,12 @@ public class StandardEncryptionManagerFactory
         boolean hasEncryptionKeys = encryptionKeys != null && !encryptionKeys.isEmpty();
         if (!hasEncryptionKeys && tableKeyId == null) {
             log.debug("Table %s is not encrypted (no encryption.key-id, no encryption-keys)", metadata.metadataFileLocation());
-            return null;
+            return Optional.empty();
         }
 
         if (tableKeyId == null) {
             log.warn("Table has encryption keys but no encryption.key-id property");
-            return null;
+            return Optional.empty();
         }
 
         int dataKeyLength = DEFAULT_DATA_KEY_LENGTH;
@@ -155,8 +156,7 @@ public class StandardEncryptionManagerFactory
         // Pass the shared singleton through NonClosingKmsWrapper into HKMC.
         // HKMC.close() propagates to its kmsClient.close(); the wrapper absorbs
         // that close so any caller of the returned StandardEncryptionManager
-        // cannot shut down the shared client. HKMC accepts the
-        // KeyManagementClient interface (Task 2.5), so no adapter is needed.
+        // cannot shut down the shared client.
         KeyManagementClient kmsClient = new HierarchicalKeyManagementClient(
                 new NonClosingKmsWrapper(sharedGcpKmsClient),
                 encryptionKeysMap,
@@ -164,8 +164,8 @@ public class StandardEncryptionManagerFactory
 
         if (keys.isEmpty()) {
             log.debug("No encryption-keys in table metadata (Spark-written PARE); using tableKeyId-only constructor");
-            return new StandardEncryptionManager(tableKeyId, dataKeyLength, kmsClient);
+            return Optional.of(new StandardEncryptionManager(tableKeyId, dataKeyLength, kmsClient));
         }
-        return new StandardEncryptionManager(keys, tableKeyId, dataKeyLength, kmsClient);
+        return Optional.of(new StandardEncryptionManager(keys, tableKeyId, dataKeyLength, kmsClient));
     }
 }

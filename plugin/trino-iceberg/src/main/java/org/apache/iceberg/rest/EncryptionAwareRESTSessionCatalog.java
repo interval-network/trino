@@ -19,7 +19,6 @@ import io.trino.plugin.iceberg.catalog.hms.PropertyExposingFileIO;
 import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.SessionCatalog;
-import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.encryption.TrinoEncryptingFileIO;
 import org.apache.iceberg.io.FileIO;
 
@@ -121,13 +120,14 @@ public class EncryptionAwareRESTSessionCatalog
             return fileIO;
         }
 
-        EncryptionManager encryptionManager = encryptionManagerFactory.create(metadata);
-        if (encryptionManager == null) {
-            log.warn("EncryptionManager factory returned null for encrypted table; using plain FileIO");
-            return fileIO;
-        }
-
-        log.debug("Wrapping FileIO with TrinoEncryptingFileIO for encrypted REST catalog table");
-        return TrinoEncryptingFileIO.wrap(new PropertyExposingFileIO(fileIO), encryptionManager, fileIO);
+        return encryptionManagerFactory.create(metadata)
+                .map(manager -> {
+                    log.debug("Wrapping FileIO with TrinoEncryptingFileIO for encrypted REST catalog table");
+                    return (org.apache.iceberg.io.FileIO) TrinoEncryptingFileIO.wrap(new PropertyExposingFileIO(fileIO), manager, fileIO);
+                })
+                .orElseGet(() -> {
+                    log.warn("EncryptionManager factory returned empty for encrypted table; using plain FileIO");
+                    return fileIO;
+                });
     }
 }
