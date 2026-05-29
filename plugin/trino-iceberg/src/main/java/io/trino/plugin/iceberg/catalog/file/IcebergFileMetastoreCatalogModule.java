@@ -25,17 +25,13 @@ import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
 import io.trino.plugin.iceberg.catalog.hms.StandardEncryptionManagerFactory;
 import io.trino.plugin.iceberg.catalog.hms.TrinoHiveCatalogFactory;
 
-import static io.airlift.configuration.ConfigBinder.configBinder;
-
 public class IcebergFileMetastoreCatalogModule
         extends AbstractConfigurationAwareModule
 {
     @Override
     protected void setup(Binder binder)
     {
-        configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
-
-        // Access the encryption config to mark properties as used
+        // Mark encryption config properties as used (binding is in IcebergModule)
         buildConfigObject(IcebergEncryptionConfig.class);
 
         binder.bind(IcebergTableOperationsProvider.class).to(FileMetastoreTableOperationsProvider.class).in(Scopes.SINGLETON);

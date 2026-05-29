@@ -34,7 +34,7 @@ public class IcebergSnowflakeCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergSnowflakeCatalogConfig.class);
-        configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
+        buildConfigObject(IcebergEncryptionConfig.class);
         binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
         binder.bind(IcebergTableOperationsProvider.class).to(SnowflakeIcebergTableOperationsProvider.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoIcebergSnowflakeCatalogFactory.class).in(Scopes.SINGLETON);

@@ -30,9 +30,8 @@ public class IcebergHiveMetastoreCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergHiveCatalogConfig.class);
-        configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
 
-        // Access the encryption config to mark properties as used
+        // Mark encryption config properties as used (binding is in IcebergModule)
         buildConfigObject(IcebergEncryptionConfig.class);
 
         binder.bind(IcebergTableOperationsProvider.class).to(HiveMetastoreTableOperationsProvider.class).in(Scopes.SINGLETON);

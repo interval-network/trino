@@ -42,10 +42,9 @@ public class IcebergNessieCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergNessieCatalogConfig.class);
-        configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
         binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
 
-        // Access the encryption config to mark properties as used
+        // Mark encryption config properties as used (binding is in IcebergModule)
         buildConfigObject(IcebergEncryptionConfig.class);
 
         binder.bind(IcebergTableOperationsProvider.class).to(IcebergNessieTableOperationsProvider.class).in(Scopes.SINGLETON);

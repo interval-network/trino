@@ -37,9 +37,8 @@ public class IcebergRestCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergRestCatalogConfig.class);
-        configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
 
-        // Access the encryption config to mark properties as used
+        // Mark encryption config properties as used (binding is in IcebergModule)
         buildConfigObject(IcebergEncryptionConfig.class);
 
         install(conditionalModule(

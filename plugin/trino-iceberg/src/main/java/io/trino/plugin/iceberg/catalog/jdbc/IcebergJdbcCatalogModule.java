@@ -37,7 +37,7 @@ public class IcebergJdbcCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergJdbcCatalogConfig.class);
-        configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
+        buildConfigObject(IcebergEncryptionConfig.class);
         binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
         binder.bind(IcebergTableOperationsProvider.class).to(IcebergJdbcTableOperationsProvider.class).in(Scopes.SINGLETON);
         newExporter(binder).export(IcebergTableOperationsProvider.class).withGeneratedName();
