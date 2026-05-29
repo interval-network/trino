@@ -59,7 +59,6 @@ public abstract class AbstractMetastoreTableOperations
 
     protected final CachingHiveMetastore metastore;
     protected final EncryptionManagerFactory encryptionManagerFactory;
-    private final FileIO unwrappedFileIo;
     private final DynamicEncryptionManager dynamicEncryptionManager;
 
     protected AbstractMetastoreTableOperations(
@@ -100,7 +99,7 @@ public abstract class AbstractMetastoreTableOperations
     {
         super(
                 org.apache.iceberg.encryption.TrinoEncryptingFileIO.wrap(
-                        new PropertyExposingFileIO(fileIo),
+                        new PropertyExposingFileIO(requireNonNull(fileIo, "fileIo is null")),
                         dynamicEncryptionManager,
                         fileIo),
                 session,
@@ -109,8 +108,6 @@ public abstract class AbstractMetastoreTableOperations
                 owner,
                 location);
 
-        // Store references
-        this.unwrappedFileIo = requireNonNull(fileIo, "fileIo is null");
         this.metastore = requireNonNull(metastore, "metastore is null");
         this.encryptionManagerFactory = requireNonNull(encryptionManagerFactory, "encryptionManagerFactory is null");
         this.dynamicEncryptionManager = dynamicEncryptionManager;
