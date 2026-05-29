@@ -105,26 +105,27 @@ public class HierarchicalKeyManagementClient
             throw new IllegalStateException("Parent key " + encryptedById + " not found for key " + keyId);
         }
 
-        // Recursively unwrap the parent key
-        log.debug("Recursively unwrapping parent key: %s", encryptedById);
-        ByteBuffer unwrappedParentKey = unwrapKey(parentKey.encryptedKeyMetadata(), encryptedById);
+        // Recursively unwrap keyId's encrypted bytes (which were encrypted by encryptedById).
+        // encryptedKey.encryptedKeyMetadata() holds keyId encrypted by encryptedById;
+        // the recursive call returns the raw bytes of keyId.
+        log.debug("Recursively unwrapping key %s via parent %s", keyId, encryptedById);
+        ByteBuffer rawKey = unwrapKey(encryptedKey.encryptedKeyMetadata(), encryptedById);
 
-        // Get the parent key's timestamp for AAD (Additional Authenticated Data)
-        Map<String, String> parentProperties = parentKey.properties();
-        String keyTimestamp = parentProperties.get(KEY_TIMESTAMP);
+        // AAD for the AES-GCM decryption of wrappedKey is keyId's own timestamp.
+        String keyTimestamp = encryptedKey.properties().get(KEY_TIMESTAMP);
         if (keyTimestamp == null) {
-            throw new IllegalStateException("Parent key " + encryptedById + " is missing KEY_TIMESTAMP property");
+            throw new IllegalStateException("Key " + keyId + " is missing KEY_TIMESTAMP property");
         }
 
-        // Use AES-GCM to decrypt the child key with the parent key
-        log.debug("Decrypting key %s using AES-GCM with parent key %s", keyId, encryptedById);
-        Ciphers.AesGcmDecryptor decryptor = new Ciphers.AesGcmDecryptor(ByteBuffers.toByteArray(unwrappedParentKey));
+        // Use AES-GCM to decrypt wrappedKey (the DEK) using the raw bytes of keyId.
+        log.debug("Decrypting DEK using key %s (wrapped by %s)", keyId, encryptedById);
+        Ciphers.AesGcmDecryptor decryptor = new Ciphers.AesGcmDecryptor(ByteBuffers.toByteArray(rawKey));
         byte[] wrappedKeyBytes = ByteBuffers.toByteArray(wrappedKey);
         byte[] aadBytes = keyTimestamp.getBytes(StandardCharsets.UTF_8);
 
         byte[] unwrappedKeyBytes = decryptor.decrypt(wrappedKeyBytes, aadBytes);
 
-        log.debug("Successfully unwrapped hierarchical key %s (wrapped by %s)", keyId, encryptedById);
+        log.debug("Successfully unwrapped key %s (via parent %s)", keyId, encryptedById);
         return ByteBuffer.wrap(unwrappedKeyBytes);
     }
 
