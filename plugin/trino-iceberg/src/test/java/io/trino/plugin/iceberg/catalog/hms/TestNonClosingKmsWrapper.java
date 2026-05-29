@@ -51,7 +51,7 @@ public class TestNonClosingKmsWrapper
     {
         TestableGcpKmsClient inner = new TestableGcpKmsClient();
         NonClosingKmsWrapper wrapper = new NonClosingKmsWrapper(inner);
-        ByteBuffer key = ByteBuffer.wrap(new byte[]{1, 2, 3, 4});
+        ByteBuffer key = ByteBuffer.wrap(new byte[] {1, 2, 3, 4});
 
         ByteBuffer result = wrapper.wrapKey(key, "key-id");
 
@@ -64,7 +64,7 @@ public class TestNonClosingKmsWrapper
     {
         TestableGcpKmsClient inner = new TestableGcpKmsClient();
         NonClosingKmsWrapper wrapper = new NonClosingKmsWrapper(inner);
-        ByteBuffer wrapped = ByteBuffer.wrap(new byte[]{5, 6, 7, 8});
+        ByteBuffer wrapped = ByteBuffer.wrap(new byte[] {5, 6, 7, 8});
 
         ByteBuffer result = wrapper.unwrapKey(wrapped, "key-id");
 

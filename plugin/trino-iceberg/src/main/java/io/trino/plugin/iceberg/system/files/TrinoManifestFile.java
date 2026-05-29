@@ -16,6 +16,7 @@ package io.trino.plugin.iceberg.system.files;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 
 import static io.airlift.slice.SizeOf.estimatedSizeOf;
@@ -36,10 +37,17 @@ public record TrinoManifestFile(
         Long addedRowsCount,
         Long existingRowsCount,
         Long deletedRowsCount,
-        Long firstRowId)
+        Long firstRowId,
+        byte[] keyMetadataBytes)
         implements ManifestFile
 {
     private static final long INSTANCE_SIZE = instanceSize(TrinoManifestFile.class);
+
+    @Override
+    public ByteBuffer keyMetadata()
+    {
+        return keyMetadataBytes != null ? ByteBuffer.wrap(keyMetadataBytes) : null;
+    }
 
     @Override
     public List<PartitionFieldSummary> partitions()
@@ -69,11 +77,18 @@ public record TrinoManifestFile(
                 + sizeOf(addedRowsCount)
                 + sizeOf(existingRowsCount)
                 + sizeOf(deletedRowsCount)
-                + sizeOf(firstRowId);
+                + sizeOf(firstRowId)
+                + (keyMetadataBytes != null ? keyMetadataBytes.length : 0);
     }
 
     public static TrinoManifestFile from(ManifestFile manifestFile)
     {
+        ByteBuffer keyMetadata = manifestFile.keyMetadata();
+        byte[] keyMetadataBytes = null;
+        if (keyMetadata != null) {
+            keyMetadataBytes = new byte[keyMetadata.remaining()];
+            keyMetadata.duplicate().get(keyMetadataBytes);
+        }
         return new TrinoManifestFile(
                 manifestFile.path(),
                 manifestFile.length(),
@@ -88,6 +103,7 @@ public record TrinoManifestFile(
                 manifestFile.addedRowsCount(),
                 manifestFile.existingRowsCount(),
                 manifestFile.deletedRowsCount(),
-                manifestFile.firstRowId());
+                manifestFile.firstRowId(),
+                keyMetadataBytes);
     }
 }

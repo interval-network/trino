@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
@@ -201,6 +202,7 @@ import static org.joda.time.DateTimeZone.UTC;
 public class IcebergPageSourceProvider
         implements ConnectorPageSourceProvider
 {
+    private static final Logger log = Logger.get(IcebergPageSourceProvider.class);
     private static final String AVRO_FIELD_ID = "field-id";
 
     // This is used whenever a query doesn't reference any data columns.
@@ -211,6 +213,7 @@ public class IcebergPageSourceProvider
 
     private final IcebergFileSystemFactory fileSystemFactory;
     private final ForwardingFileIoFactory fileIoFactory;
+    private final io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory encryptionManagerFactory;
     private final FileFormatDataSourceStats fileFormatDataSourceStats;
     private final OrcReaderOptions orcReaderOptions;
     private final ParquetReaderOptions parquetReaderOptions;
@@ -222,6 +225,7 @@ public class IcebergPageSourceProvider
     public IcebergPageSourceProvider(
             IcebergFileSystemFactory fileSystemFactory,
             ForwardingFileIoFactory fileIoFactory,
+            io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory encryptionManagerFactory,
             FileFormatDataSourceStats fileFormatDataSourceStats,
             OrcReaderOptions orcReaderOptions,
             ParquetReaderOptions parquetReaderOptions,
@@ -229,6 +233,7 @@ public class IcebergPageSourceProvider
     {
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.fileIoFactory = requireNonNull(fileIoFactory, "fileIoFactory is null");
+        this.encryptionManagerFactory = requireNonNull(encryptionManagerFactory, "encryptionManagerFactory is null");
         this.fileFormatDataSourceStats = requireNonNull(fileFormatDataSourceStats, "fileFormatDataSourceStats is null");
         this.orcReaderOptions = requireNonNull(orcReaderOptions, "orcReaderOptions is null");
         this.parquetReaderOptions = requireNonNull(parquetReaderOptions, "parquetReaderOptions is null");
@@ -246,10 +251,33 @@ public class IcebergPageSourceProvider
             DynamicFilter dynamicFilter)
     {
         if (connectorSplit instanceof FilesTableSplit filesTableSplit) {
+            org.apache.iceberg.io.FileIO manifestFileIO = fileIoFactory.create(
+                    fileSystemFactory.create(session.getIdentity(), filesTableSplit.fileIoProperties()));
+            // Wrap with encryption-aware FileIO if the table uses PARE encryption.
+            // The regular scan path gets this via TrinoEncryptingFileIO wired at the catalog level
+            // (AbstractMetastoreTableOperations / EncryptionAwareRESTSessionCatalog), but the
+            // FilesTablePageSource constructs its own FileIO from scratch. Without the wrapper it
+            // opens the encrypted Avro manifest, sees the PARE envelope, and throws
+            // InvalidAvroMagicException — causing discovery to report 0 tables.
+            if (filesTableSplit.tableMetadataJson().isPresent()) {
+                org.apache.iceberg.TableMetadata tableMetadata = org.apache.iceberg.TableMetadataParser.fromJson(filesTableSplit.tableMetadataJson().get());
+                String tableKeyId = tableMetadata.properties().get("encryption.key-id");
+                int encKeyCount = tableMetadata.encryptionKeys() != null ? tableMetadata.encryptionKeys().size() : 0;
+                log.debug("$files split: manifest=%s keyId=%s encryptionKeyCount=%d", filesTableSplit.manifestFile().path(), tableKeyId, encKeyCount);
+                org.apache.iceberg.encryption.EncryptionManager encryptionManager = encryptionManagerFactory.create(tableMetadata);
+                if (encryptionManager != null) {
+                    manifestFileIO = org.apache.iceberg.encryption.TrinoEncryptingFileIO.wrap(
+                            new io.trino.plugin.iceberg.catalog.hms.PropertyExposingFileIO(manifestFileIO),
+                            encryptionManager,
+                            manifestFileIO);
+                }
+            }
+            else {
+                log.debug("$files split: tableMetadataJson is empty for manifest=%s; no encryption wrapping", filesTableSplit.manifestFile().path());
+            }
             return new FilesTablePageSource(
                     typeManager,
-                    fileSystemFactory.create(session.getIdentity(), filesTableSplit.fileIoProperties()),
-                    fileIoFactory,
+                    manifestFileIO,
                     columns.stream().map(SystemColumnHandle.class::cast).map(SystemColumnHandle::columnName).collect(toImmutableList()),
                     filesTableSplit);
         }

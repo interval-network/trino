@@ -29,7 +29,8 @@ public record FilesTableSplit(
         String metadataTableJson,
         Map<Integer, String> partitionSpecsByIdJson,
         Optional<Type> partitionColumnType,
-        Map<String, String> fileIoProperties)
+        Map<String, String> fileIoProperties,
+        Optional<String> tableMetadataJson)
         implements ConnectorSplit
 {
     private static final int INSTANCE_SIZE = instanceSize(FilesTableSplit.class);
@@ -43,6 +44,7 @@ public record FilesTableSplit(
                 + estimatedSizeOf(schemaJson)
                 + estimatedSizeOf(metadataTableJson)
                 + estimatedSizeOf(partitionSpecsByIdJson, SizeOf::sizeOf, SizeOf::estimatedSizeOf)
-                + estimatedSizeOf(fileIoProperties, SizeOf::estimatedSizeOf, SizeOf::estimatedSizeOf);
+                + estimatedSizeOf(fileIoProperties, SizeOf::estimatedSizeOf, SizeOf::estimatedSizeOf)
+                + tableMetadataJson.map(SizeOf::estimatedSizeOf).orElse(0L);
     }
 }

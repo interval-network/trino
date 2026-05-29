@@ -578,6 +578,7 @@ public class TestIcebergNodeLocalDynamicSplitPruning
         IcebergPageSourceProviderFactory factory = new IcebergPageSourceProviderFactory(
                 new DefaultIcebergFileSystemFactory(new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS)),
                 FILE_IO_FACTORY,
+                metadata -> null,
                 stats,
                 ORC_READER_CONFIG,
                 PARQUET_READER_CONFIG,

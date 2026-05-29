@@ -36,7 +36,7 @@ public class TestHierarchicalKeyManagementClient
                 Map.of(),
                 "test-key-id");
 
-        ByteBuffer key = ByteBuffer.wrap(new byte[]{1, 2, 3, 4});
+        ByteBuffer key = ByteBuffer.wrap(new byte[] {1, 2, 3, 4});
         hkmc.wrapKey(key, "test-key-id");
 
         assertThat(backing.wrapCalls()).isEqualTo(1);
@@ -53,7 +53,7 @@ public class TestHierarchicalKeyManagementClient
                 Map.of(),
                 "table-key-id");
 
-        ByteBuffer wrapped = ByteBuffer.wrap(new byte[]{5, 6, 7, 8});
+        ByteBuffer wrapped = ByteBuffer.wrap(new byte[] {5, 6, 7, 8});
         hkmc.unwrapKey(wrapped, "table-key-id");
 
         assertThat(backing.unwrapCalls()).isEqualTo(1);

@@ -65,14 +65,19 @@ public class EncryptionAwareRESTSessionCatalog
             TableMetadata current,
             Set<Endpoint> endpoints)
     {
-        return super.newTableOps(
-                restClient,
-                path,
-                readHeaders,
-                mutationHeaders,
-                maybeWrapWithEncryption(fileIO, current),
-                current,
-                endpoints);
+        // Pre-wrap the FileIO with encryption. We override io() in the returned ops so that
+        // RESTTableOperations.io() (which would otherwise try to re-wrap using an internal
+        // keyManagementClient that is null) always returns our already-encrypted IO.
+        final FileIO encryptedIO = maybeWrapWithEncryption(fileIO, current);
+        return new RESTTableOperations(restClient, path, readHeaders, mutationHeaders,
+                encryptedIO, current, endpoints)
+        {
+            @Override
+            public FileIO io()
+            {
+                return encryptedIO;
+            }
+        };
     }
 
     @Override
@@ -87,16 +92,16 @@ public class EncryptionAwareRESTSessionCatalog
             TableMetadata current,
             Set<Endpoint> endpoints)
     {
-        return super.newTableOps(
-                restClient,
-                path,
-                readHeaders,
-                mutationHeaders,
-                maybeWrapWithEncryption(fileIO, current),
-                updateType,
-                createChanges,
-                current,
-                endpoints);
+        final FileIO encryptedIO = maybeWrapWithEncryption(fileIO, current);
+        return new RESTTableOperations(restClient, path, readHeaders, mutationHeaders,
+                encryptedIO, updateType, createChanges, current, endpoints)
+        {
+            @Override
+            public FileIO io()
+            {
+                return encryptedIO;
+            }
+        };
     }
 
     private FileIO maybeWrapWithEncryption(FileIO fileIO, TableMetadata metadata)

@@ -27,12 +27,13 @@ import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.spi.type.TypeSignature;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.SchemaParser;
-import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.io.FileIO;
 
 import java.util.List;
@@ -93,11 +94,11 @@ public final class FilesTable
             READABLE_METRICS_COLUMN_NAME);
 
     private final ConnectorTableMetadata tableMetadata;
-    private final Table icebergTable;
+    private final BaseTable icebergTable;
     private final Optional<Long> snapshotId;
     private final Optional<Type> partitionColumnType;
 
-    public FilesTable(SchemaTableName tableName, TypeManager typeManager, Table icebergTable, Optional<Long> snapshotId)
+    public FilesTable(SchemaTableName tableName, TypeManager typeManager, BaseTable icebergTable, Optional<Long> snapshotId)
     {
         this.icebergTable = requireNonNull(icebergTable, "icebergTable is null");
         this.snapshotId = requireNonNull(snapshotId, "snapshotId is null");
@@ -134,6 +135,8 @@ public final class FilesTable
     public Optional<ConnectorSplitSource> splitSource(ConnectorSession connectorSession, TupleDomain<ColumnHandle> constraint)
     {
         try (FileIO fileIO = icebergTable.io()) {
+            Optional<String> tableMetadataJson = Optional.ofNullable(icebergTable.operations().current())
+                    .map(metadata -> TableMetadataParser.toJson(metadata));
             return Optional.of(new FilesTableSplitSource(
                     icebergTable,
                     snapshotId,
@@ -143,7 +146,8 @@ public final class FilesTable
                             Map.Entry::getKey,
                             partitionSpec -> PartitionSpecParser.toJson(partitionSpec.getValue()))),
                     partitionColumnType,
-                    fileIO.properties()));
+                    fileIO.properties(),
+                    tableMetadataJson));
         }
     }
 

@@ -30,15 +30,10 @@ import java.util.Map;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Factory implementation that creates StandardEncryptionManager instances
- * for encrypted Iceberg tables using GCP KMS.
- *
- * The underlying GcpKeyManagementClient is constructed and initialized once at
- * @Inject time and reused across all create() calls. Guice binds this factory as
- * a connector-scope singleton, so a single GcpKeyManagementClient exists per
- * Trino JVM per catalog. Per-table HierarchicalKeyManagementClient wrappers
- * receive the shared client via NonClosingKmsWrapper to prevent accidental close
- * propagation. This matches upstream trinodb/trino PR #28389's lifecycle shape.
+ * Factory that creates StandardEncryptionManager instances for encrypted Iceberg tables using GCP KMS.
+ * The shared GcpKeyManagementClient is constructed once at injection time and reused across all
+ * create() calls. Per-table HierarchicalKeyManagementClient wrappers receive the shared client via
+ * NonClosingKmsWrapper to prevent accidental close propagation.
  */
 public class StandardEncryptionManagerFactory
         implements EncryptionManagerFactory
@@ -70,7 +65,33 @@ public class StandardEncryptionManagerFactory
     {
         requireNonNull(encryptionConfig, "encryptionConfig is null");
 
-        GcpKeyManagementClient client = new GcpKeyManagementClient();
+        // GcpKeyManagementClient's ByteStringShim static initializer uses DynClasses.builder()
+        // which captures Thread.currentThread().getContextClassLoader(). At @Inject time (Guice
+        // thread) the context class loader is the system loader, not the plugin loader, so
+        // protobuf-java is invisible. Temporarily set the context loader to the plugin loader
+        // so ByteStringShim.<clinit> resolves com.google.protobuf.ByteString correctly.
+        ClassLoader pluginLoader = StandardEncryptionManagerFactory.class.getClassLoader();
+        ClassLoader originalLoader = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(pluginLoader);
+        GcpKeyManagementClient client;
+        try {
+            client = new GcpKeyManagementClient();
+            // ByteStringShim is a static inner class whose <clinit> uses DynClasses.builder(),
+            // which captures the context classloader. <clinit> runs lazily on the first
+            // wrapKey/unwrapKey call — long after we've restored the context classloader. Force
+            // it to initialize NOW while the plugin classloader is still the context classloader.
+            try {
+                Class.forName("org.apache.iceberg.gcp.GcpKeyManagementClient$ByteStringShim", true, pluginLoader);
+                log.info("GcpKeyManagementClient$ByteStringShim initialized with plugin classloader");
+            }
+            catch (Throwable t) {
+                log.warn(t, "Could not eagerly initialize GcpKeyManagementClient$ByteStringShim; type=%s msg=%s",
+                        t.getClass().getName(), t.getMessage());
+            }
+        }
+        finally {
+            Thread.currentThread().setContextClassLoader(originalLoader);
+        }
         Map<String, String> properties = new HashMap<>();
         String kmsKeyUri = encryptionConfig.getKmsKeyUri();
         if (kmsKeyUri != null && !kmsKeyUri.isEmpty()) {
@@ -92,7 +113,7 @@ public class StandardEncryptionManagerFactory
         List<EncryptedKey> encryptionKeys = metadata.encryptionKeys();
         boolean hasEncryptionKeys = encryptionKeys != null && !encryptionKeys.isEmpty();
         if (!hasEncryptionKeys && tableKeyId == null) {
-            log.debug("Table %s is not encrypted", metadata.metadataFileLocation());
+            log.info("Table %s is not encrypted (no encryption.key-id, no encryption-keys)", metadata.metadataFileLocation());
             return null;
         }
 

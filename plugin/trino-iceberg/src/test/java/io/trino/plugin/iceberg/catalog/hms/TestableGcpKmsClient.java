@@ -62,8 +62,23 @@ public class TestableGcpKmsClient
         closeCalls.incrementAndGet();
     }
 
-    public int wrapCalls() { return wrapCalls.get(); }
-    public int unwrapCalls() { return unwrapCalls.get(); }
-    public int initializeCalls() { return initializeCalls.get(); }
-    public int closeCalls() { return closeCalls.get(); }
+    public int wrapCalls()
+    {
+        return wrapCalls.get();
+    }
+
+    public int unwrapCalls()
+    {
+        return unwrapCalls.get();
+    }
+
+    public int initializeCalls()
+    {
+        return initializeCalls.get();
+    }
+
+    public int closeCalls()
+    {
+        return closeCalls.get();
+    }
 }

@@ -19,6 +19,7 @@ import io.trino.parquet.ParquetReaderOptions;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.hive.orc.OrcReaderConfig;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
 import io.trino.plugin.iceberg.fileio.ForwardingFileIoFactory;
 import io.trino.spi.connector.ConnectorPageSourceProvider;
 import io.trino.spi.connector.ConnectorPageSourceProviderFactory;
@@ -31,6 +32,7 @@ public class IcebergPageSourceProviderFactory
 {
     private final IcebergFileSystemFactory fileSystemFactory;
     private final ForwardingFileIoFactory fileIoFactory;
+    private final EncryptionManagerFactory encryptionManagerFactory;
     private final FileFormatDataSourceStats fileFormatDataSourceStats;
     private final OrcReaderOptions orcReaderOptions;
     private final ParquetReaderOptions parquetReaderOptions;
@@ -40,6 +42,7 @@ public class IcebergPageSourceProviderFactory
     public IcebergPageSourceProviderFactory(
             IcebergFileSystemFactory fileSystemFactory,
             ForwardingFileIoFactory fileIoFactory,
+            EncryptionManagerFactory encryptionManagerFactory,
             FileFormatDataSourceStats fileFormatDataSourceStats,
             OrcReaderConfig orcReaderConfig,
             ParquetReaderConfig parquetReaderConfig,
@@ -47,6 +50,7 @@ public class IcebergPageSourceProviderFactory
     {
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.fileIoFactory = requireNonNull(fileIoFactory, "fileIoFactory is null");
+        this.encryptionManagerFactory = requireNonNull(encryptionManagerFactory, "encryptionManagerFactory is null");
         this.fileFormatDataSourceStats = requireNonNull(fileFormatDataSourceStats, "fileFormatDataSourceStats is null");
         this.orcReaderOptions = orcReaderConfig.toOrcReaderOptions();
         this.parquetReaderOptions = parquetReaderConfig.toParquetReaderOptions();
@@ -56,6 +60,6 @@ public class IcebergPageSourceProviderFactory
     @Override
     public ConnectorPageSourceProvider createPageSourceProvider()
     {
-        return new IcebergPageSourceProvider(fileSystemFactory, fileIoFactory, fileFormatDataSourceStats, orcReaderOptions, parquetReaderOptions, typeManager);
+        return new IcebergPageSourceProvider(fileSystemFactory, fileIoFactory, encryptionManagerFactory, fileFormatDataSourceStats, orcReaderOptions, parquetReaderOptions, typeManager);
     }
 }
