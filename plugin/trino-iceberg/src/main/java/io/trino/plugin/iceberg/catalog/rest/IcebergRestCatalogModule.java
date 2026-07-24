@@ -19,6 +19,9 @@ import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.IcebergFileSystemFactory;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.hms.EncryptionManagerFactory;
+import io.trino.plugin.iceberg.catalog.hms.IcebergEncryptionConfig;
+import io.trino.plugin.iceberg.catalog.hms.StandardEncryptionManagerFactory;
 import io.trino.spi.TrinoException;
 
 import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
@@ -32,6 +35,9 @@ public class IcebergRestCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergRestCatalogConfig.class);
+        // PARE encryption: consume the encryption.kms.* catalog properties and bind the
+        // GCP-KMS-backed EncryptionManagerFactory used by EncryptionAwareRESTSessionCatalog.
+        configBinder(binder).bindConfig(IcebergEncryptionConfig.class);
         install(switch (buildConfigObject(IcebergRestCatalogConfig.class).getSecurity()) {
             case OAUTH2 -> new OAuth2SecurityModule();
             case SIGV4 -> new SigV4SecurityModule();
@@ -40,6 +46,7 @@ public class IcebergRestCatalogModule
         });
 
         binder.bind(IcebergRestCatalogPropertiesProvider.class).in(Scopes.SINGLETON);
+        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoIcebergRestCatalogFactory.class).in(Scopes.SINGLETON);
         newOptionalBinder(binder, IcebergFileSystemFactory.class).setBinding().to(IcebergRestCatalogFileSystemFactory.class).in(Scopes.SINGLETON);
 
