@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class TestStandardEncryptionManagerFactory
 {
@@ -43,6 +44,58 @@ public class TestStandardEncryptionManagerFactory
         assertThat(factory.sharedKmsClientForTesting())
                 .as("factory must hold a non-null shared KMS client after construction")
                 .isNotNull();
+    }
+
+    @Test
+    public void kmsImplSelectsThePluggableClientInsteadOfGcp()
+    {
+        IcebergEncryptionConfig config = new IcebergEncryptionConfig()
+                .setKmsImpl(TestablePluggableKmsClient.class.getName())
+                .setKmsKeyUri("openbao://iceberg-pare");
+
+        StandardEncryptionManagerFactory factory =
+                new StandardEncryptionManagerFactory(config);
+
+        assertThat(factory.sharedKmsClientForTesting())
+                .as("encryption.kms-impl must be honored, not silently ignored in favour of GCP")
+                .isInstanceOf(TestablePluggableKmsClient.class);
+
+        TestablePluggableKmsClient client = (TestablePluggableKmsClient) factory.sharedKmsClientForTesting();
+        assertThat(client.initializeCalls())
+                .as("the shared client must be initialized exactly once, at construction")
+                .isEqualTo(1);
+        assertThat(client.initializeProperties())
+                .as("the factory must pass kms.key-uri through to the pluggable client")
+                .containsEntry("encryption.kms.key-uri", "openbao://iceberg-pare");
+    }
+
+    @Test
+    public void kmsImplWithoutKeyUriStillConfiguresEncryption()
+    {
+        // The on-prem shape: a non-GCP KMS needs no kms-key-uri. Gating "is encryption configured?"
+        // on kms-key-uri alone left the shared client null, so create() returned empty and tables
+        // silently read as plaintext instead of failing.
+        IcebergEncryptionConfig config = new IcebergEncryptionConfig()
+                .setKmsImpl(TestablePluggableKmsClient.class.getName());
+
+        StandardEncryptionManagerFactory factory =
+                new StandardEncryptionManagerFactory(config);
+
+        assertThat(factory.sharedKmsClientForTesting())
+                .as("kms-impl alone must count as encryption being configured")
+                .isInstanceOf(TestablePluggableKmsClient.class);
+    }
+
+    @Test
+    public void unknownKmsImplFailsLoudly()
+    {
+        IcebergEncryptionConfig config = new IcebergEncryptionConfig()
+                .setKmsImpl("xyz.interval.does.NotExist");
+
+        assertThatThrownBy(() -> new StandardEncryptionManagerFactory(config))
+                .as("a misconfigured kms-impl must fail at construction, not degrade to plaintext")
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("xyz.interval.does.NotExist");
     }
 
     @Test
