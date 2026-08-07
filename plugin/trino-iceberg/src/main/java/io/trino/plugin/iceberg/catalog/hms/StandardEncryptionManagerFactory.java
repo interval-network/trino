@@ -31,10 +31,21 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Factory that creates StandardEncryptionManager instances for encrypted Iceberg tables using GCP KMS.
- * The shared GcpKeyManagementClient is constructed once at injection time and reused across all
+ * Factory that creates StandardEncryptionManager instances for encrypted Iceberg tables.
+ * The shared KeyManagementClient is constructed once at injection time and reused across all
  * create() calls. Per-table HierarchicalKeyManagementClient wrappers receive the shared client via
  * NonClosingKmsWrapper to prevent accidental close propagation.
+ *
+ * <p>The KMS client is pluggable. When {@code encryption.kms-impl} names a
+ * {@link KeyManagementClient} class other than {@link GcpKeyManagementClient} (e.g. the OpenBao
+ * Transit client used by the local-kms / on-prem platform profiles), it is instantiated reflectively
+ * via the plugin classloader. Absent {@code encryption.kms-impl}, the factory defaults to
+ * {@link GcpKeyManagementClient}, preserving the production GCP-KMS behavior unchanged.
+ *
+ * <p>Note this is the fork's REST-catalog encryption path. Trino's own
+ * {@code io.trino.plugin.iceberg.encryption} framework resolves a KMS via the
+ * {@code iceberg.encryption.kms-type} enum (AWS/AZURE/GCP), but it is wired for metastore-style
+ * catalogs only and has no OpenBao value, so it does not serve this path.
  */
 public class StandardEncryptionManagerFactory
         implements EncryptionManagerFactory
@@ -42,41 +53,80 @@ public class StandardEncryptionManagerFactory
     private static final Logger log = Logger.get(StandardEncryptionManagerFactory.class);
     private static final int DEFAULT_DATA_KEY_LENGTH = 16;
 
-    // Null when encryption is not configured (no kms-key-uri); create() returns null in that case.
-    private final GcpKeyManagementClient sharedGcpKmsClient;
+    // Null when encryption is not configured (no kms-key-uri and no kms-impl); create() returns null.
+    private final KeyManagementClient sharedKmsClient;
 
     @Inject
     public StandardEncryptionManagerFactory(IcebergEncryptionConfig encryptionConfig)
     {
         requireNonNull(encryptionConfig, "encryptionConfig is null");
         String kmsKeyUri = encryptionConfig.getKmsKeyUri();
-        this.sharedGcpKmsClient = (kmsKeyUri != null && !kmsKeyUri.isBlank())
+        String kmsImpl = encryptionConfig.getKmsImpl();
+        // Either property means encryption is configured. A non-GCP KMS (OpenBao) needs no
+        // kms-key-uri, so gating on kms-key-uri alone would silently disable encryption for it.
+        boolean encryptionConfigured = (kmsKeyUri != null && !kmsKeyUri.isBlank())
+                || (kmsImpl != null && !kmsImpl.isBlank());
+        this.sharedKmsClient = encryptionConfigured
                 ? buildAndInitializeKmsClient(encryptionConfig)
                 : null;
     }
 
     @VisibleForTesting
-    StandardEncryptionManagerFactory(GcpKeyManagementClient sharedGcpKmsClient)
+    StandardEncryptionManagerFactory(KeyManagementClient sharedKmsClient)
     {
-        this.sharedGcpKmsClient = sharedGcpKmsClient;
+        this.sharedKmsClient = sharedKmsClient;
     }
 
     @VisibleForTesting
-    GcpKeyManagementClient sharedKmsClientForTesting()
+    KeyManagementClient sharedKmsClientForTesting()
     {
-        return sharedGcpKmsClient;
+        return sharedKmsClient;
     }
 
-    private static GcpKeyManagementClient buildAndInitializeKmsClient(IcebergEncryptionConfig encryptionConfig)
+    private static Map<String, String> kmsClientProperties(IcebergEncryptionConfig encryptionConfig)
+    {
+        Map<String, String> properties = new HashMap<>();
+        String kmsKeyUri = encryptionConfig.getKmsKeyUri();
+        if (kmsKeyUri != null && !kmsKeyUri.isEmpty()) {
+            properties.put("encryption.kms.key-uri", kmsKeyUri);
+        }
+        return properties;
+    }
+
+    private static KeyManagementClient buildAndInitializeKmsClient(IcebergEncryptionConfig encryptionConfig)
     {
         requireNonNull(encryptionConfig, "encryptionConfig is null");
 
+        ClassLoader pluginLoader = StandardEncryptionManagerFactory.class.getClassLoader();
+        String kmsImpl = encryptionConfig.getKmsImpl();
+
+        // Pluggable KMS: when encryption.kms-impl names a non-GCP KeyManagementClient (e.g. the
+        // OpenBao client for the local-kms / on-prem profiles), instantiate it reflectively via the
+        // plugin classloader so it resolves against the iceberg plugin's classpath. The client reads
+        // its own connection config from initialize() properties / environment.
+        if (kmsImpl != null && !kmsImpl.isBlank()
+                && !kmsImpl.equals(GcpKeyManagementClient.class.getName())) {
+            try {
+                Class<?> clazz = Class.forName(kmsImpl, true, pluginLoader);
+                KeyManagementClient client = (KeyManagementClient) clazz.getDeclaredConstructor().newInstance();
+                Map<String, String> properties = kmsClientProperties(encryptionConfig);
+                client.initialize(properties);
+                log.info("Initialized shared KeyManagementClient '%s' (Guice connector singleton) with %d properties",
+                        kmsImpl,
+                        properties.size());
+                return client;
+            }
+            catch (ReflectiveOperationException e) {
+                throw new RuntimeException("Failed to instantiate encryption.kms-impl=" + kmsImpl, e);
+            }
+        }
+
+        // Default: GCP KMS.
         // GcpKeyManagementClient's ByteStringShim static initializer uses DynClasses.builder()
         // which captures Thread.currentThread().getContextClassLoader(). At @Inject time (Guice
         // thread) the context class loader is the system loader, not the plugin loader, so
         // protobuf-java is invisible. Temporarily set the context loader to the plugin loader
         // so ByteStringShim.<clinit> resolves com.google.protobuf.ByteString correctly.
-        ClassLoader pluginLoader = StandardEncryptionManagerFactory.class.getClassLoader();
         ClassLoader originalLoader = Thread.currentThread().getContextClassLoader();
         Thread.currentThread().setContextClassLoader(pluginLoader);
         GcpKeyManagementClient client;
@@ -100,11 +150,7 @@ public class StandardEncryptionManagerFactory
         finally {
             Thread.currentThread().setContextClassLoader(originalLoader);
         }
-        Map<String, String> properties = new HashMap<>();
-        String kmsKeyUri = encryptionConfig.getKmsKeyUri();
-        if (kmsKeyUri != null && !kmsKeyUri.isEmpty()) {
-            properties.put("encryption.kms.key-uri", kmsKeyUri);
-        }
+        Map<String, String> properties = kmsClientProperties(encryptionConfig);
         client.initialize(properties);
         log.info("Initialized shared GcpKeyManagementClient (Guice connector singleton) with %d properties", properties.size());
         return client;
@@ -115,7 +161,7 @@ public class StandardEncryptionManagerFactory
     {
         requireNonNull(metadata, "metadata is null");
 
-        if (sharedGcpKmsClient == null) {
+        if (sharedKmsClient == null) {
             return Optional.empty();
         }
 
@@ -164,7 +210,7 @@ public class StandardEncryptionManagerFactory
         // that close so any caller of the returned StandardEncryptionManager
         // cannot shut down the shared client.
         KeyManagementClient kmsClient = new HierarchicalKeyManagementClient(
-                new NonClosingKmsWrapper(sharedGcpKmsClient),
+                new NonClosingKmsWrapper(sharedKmsClient),
                 encryptionKeysMap,
                 tableKeyId);
 
