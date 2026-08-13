@@ -46,7 +46,28 @@ public class IcebergRestCatalogModule
         });
 
         binder.bind(IcebergRestCatalogPropertiesProvider.class).in(Scopes.SINGLETON);
-        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
+        // Bind the CONCRETE fork factory explicitly and as a singleton, then link the fork interface to
+        // it. Two reasons, both load-bearing:
+        //  1. Trino runs Guice with requireExplicitBindings, so a just-in-time binding is unavailable —
+        //     injecting StandardEncryptionManagerFactory into the adapter below fails at injector
+        //     creation ([Guice/JitDisabled]) without this.
+        //  2. It guarantees the fork interface and the native-interface adapter share ONE instance, and
+        //     therefore ONE initialised KeyManagementClient. A separate instance per injection point
+        //     would build a second KMS client, which is exactly what this design exists to avoid.
+        binder.bind(StandardEncryptionManagerFactory.class).in(Scopes.SINGLETON);
+        binder.bind(EncryptionManagerFactory.class).to(StandardEncryptionManagerFactory.class);
+
+        // Serve Trino's NATIVE encryption factory from the fork's KMS client, for REST catalogs only.
+        // IcebergModule binds it with .setDefault() -> DefaultEncryptionManagerFactory, which throws for
+        // any table carrying encryption.key-id unless iceberg.encryption.kms-type is set; that is what
+        // broke "$files"/"$partitions" on 483 (IcebergPageSourceProvider's FilesTableSplit branch) while
+        // ordinary data reads, which use the manager attached by EncryptionAwareRESTSessionCatalog, kept
+        // working. Overriding here rather than globally leaves hive/glue/nessie/jdbc catalogs on upstream
+        // behaviour, since IcebergCatalogModule installs exactly one catalog module per catalog injector.
+        // NOTE: a test that combines its own .setBinding() for this key with iceberg.catalog.type=REST
+        // would now produce a duplicate binding and fail at injector creation.
+        newOptionalBinder(binder, io.trino.plugin.iceberg.encryption.EncryptionManagerFactory.class)
+                .setBinding().to(RestNativeEncryptionManagerFactory.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoIcebergRestCatalogFactory.class).in(Scopes.SINGLETON);
         newOptionalBinder(binder, IcebergFileSystemFactory.class).setBinding().to(IcebergRestCatalogFileSystemFactory.class).in(Scopes.SINGLETON);
 

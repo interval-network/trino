@@ -83,6 +83,20 @@ public class StandardEncryptionManagerFactory
         return sharedKmsClient;
     }
 
+    /**
+     * The shared, already-initialised KMS client, or empty when encryption is not configured for this
+     * catalog. Exposed so Trino's <em>native</em> encryption framework can be served from the same
+     * client on the REST path instead of standing up a second one — see
+     * {@code io.trino.plugin.iceberg.catalog.rest.RestNativeEncryptionManagerFactory}.
+     *
+     * <p>Callers must fail closed on {@link Optional#empty()} for a table that declares encryption.
+     * Substituting a plaintext manager there would silently read an encrypted table as cleartext.
+     */
+    public Optional<KeyManagementClient> sharedKmsClient()
+    {
+        return Optional.ofNullable(sharedKmsClient);
+    }
+
     private static Map<String, String> kmsClientProperties(IcebergEncryptionConfig encryptionConfig)
     {
         Map<String, String> properties = new HashMap<>();
