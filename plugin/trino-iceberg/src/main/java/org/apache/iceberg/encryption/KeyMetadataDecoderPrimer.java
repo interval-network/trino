@@ -74,16 +74,26 @@ public final class KeyMetadataDecoderPrimer
      * per catalog — each catalog's {@code PluginClassLoader} has its own copy of
      * {@link StandardKeyMetadata} and therefore its own static decoder cache to prime.
      *
+     * <p>Called from {@code StandardEncryptionManagerFactory}'s constructor, which airlift's
+     * {@code Bootstrap} drives eagerly: it creates the injector with {@code Stage.PRODUCTION}, so
+     * the singleton is built at connector creation on <em>every</em> node rather than lazily on
+     * first use. That matters because decryption happens on the workers' page-source path, and a
+     * primer that only ran on the coordinator would look healthy while leaving workers exposed.
+     * The {@code INFO} line this method emits is the deploy-time confirmation — expect one per
+     * encryption-configured catalog on the coordinator <em>and</em> on each worker.
+     *
      * @throws IllegalStateException if the round trip does not produce a {@link StandardKeyMetadata},
      *         which means encrypted reads on this catalog would fail. Fail closed rather than let the
      *         catalog serve a decoder that throws on the first real manifest.
      */
     public static void prime()
     {
-        // The loader that defines this class also defines StandardKeyMetadata: same package, same
-        // plugin jar. Deriving it here rather than accepting it as a parameter removes any chance of
-        // being handed the wrong loader, which would prime the cache with the very fallback reader
-        // this exists to prevent.
+        // This class and StandardKeyMetadata ship in different jars (trino-iceberg and
+        // iceberg-core) but are loaded by the same catalog-scoped PluginClassLoader, so the loader
+        // that defines this class is exactly the one that must resolve StandardKeyMetadata.
+        // Deriving it here rather than accepting it as a parameter removes any chance of being
+        // handed the wrong loader, which would prime the cache with the very fallback reader this
+        // exists to prevent.
         ClassLoader pluginClassLoader = KeyMetadataDecoderPrimer.class.getClassLoader();
 
         // Do not trust the ambient context classloader. IcebergConnectorFactory.create wraps injector
