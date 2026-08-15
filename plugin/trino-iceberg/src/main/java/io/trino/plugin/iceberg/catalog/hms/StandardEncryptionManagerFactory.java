@@ -20,6 +20,7 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.encryption.EncryptedKey;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.encryption.KeyManagementClient;
+import org.apache.iceberg.encryption.KeyMetadataDecoderPrimer;
 import org.apache.iceberg.encryption.StandardEncryptionManager;
 import org.apache.iceberg.gcp.GcpKeyManagementClient;
 
@@ -66,6 +67,15 @@ public class StandardEncryptionManagerFactory
         // kms-key-uri, so gating on kms-key-uri alone would silently disable encryption for it.
         boolean encryptionConfigured = (kmsKeyUri != null && !kmsKeyUri.isBlank())
                 || (kmsImpl != null && !kmsImpl.isBlank());
+        if (encryptionConfigured) {
+            // Build Iceberg's static key-metadata decoder now, under this plugin's classloader,
+            // instead of leaving it to whichever iceberg-split-source thread performs the first
+            // decrypt. Getting that wrong caches a generic-record reader for the life of the JVM and
+            // fails every encrypted read with a ClassCastException — see KeyMetadataDecoderPrimer and
+            // DAT-1126. Throws if it cannot, which fails this catalog closed rather than starting one
+            // that cannot read any encrypted table.
+            KeyMetadataDecoderPrimer.prime();
+        }
         this.sharedKmsClient = encryptionConfigured
                 ? buildAndInitializeKmsClient(encryptionConfig)
                 : null;
