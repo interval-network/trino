@@ -14,6 +14,7 @@
 package org.apache.iceberg.encryption;
 
 import io.airlift.log.Logger;
+import org.apache.iceberg.Schema;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
@@ -168,7 +169,7 @@ public final class KeyMetadataDecoderPrimer
      * The schema versions this Iceberg build knows how to decode. Exposed for tests that assert the
      * primer's coverage against Iceberg's own list.
      */
-    static Map<Byte, org.apache.iceberg.Schema> supportedSchemaVersions()
+    static Map<Byte, Schema> supportedSchemaVersions()
     {
         return StandardKeyMetadata.supportedSchemaVersions();
     }

@@ -13,12 +13,15 @@
  */
 package org.apache.iceberg.encryption;
 
+import org.apache.iceberg.Schema;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.ByteBuffer;
 import java.util.Map;
 
@@ -110,7 +113,7 @@ public class TestKeyMetadataDecoderPrimer
     @Test
     public void icebergStillDefinesExactlyOneKeyMetadataSchemaVersion()
     {
-        Map<Byte, org.apache.iceberg.Schema> versions = KeyMetadataDecoderPrimer.supportedSchemaVersions();
+        Map<Byte, Schema> versions = KeyMetadataDecoderPrimer.supportedSchemaVersions();
         assertThat(versions.keySet())
                 .as("A new key-metadata schema version needs a matching primer — see KeyMetadataDecoderPrimer")
                 .containsExactly((byte) 1);
@@ -122,7 +125,7 @@ public class TestKeyMetadataDecoderPrimer
     @Test
     public void primingRestoresTheContextClassLoader()
     {
-        ClassLoader sentinel = new java.net.URLClassLoader(new java.net.URL[0], ClassLoader.getPlatformClassLoader());
+        ClassLoader sentinel = new URLClassLoader(new URL[0], ClassLoader.getPlatformClassLoader());
         ClassLoader original = Thread.currentThread().getContextClassLoader();
         Thread.currentThread().setContextClassLoader(sentinel);
         try {
