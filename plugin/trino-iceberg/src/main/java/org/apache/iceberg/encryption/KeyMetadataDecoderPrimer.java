@@ -71,17 +71,29 @@ public final class KeyMetadataDecoderPrimer
     /**
      * Primes the decoder for every key-metadata schema version this Iceberg build supports.
      *
-     * <p>Idempotent and cheap: an in-memory Avro round trip per schema version. Safe to call once
-     * per catalog — each catalog's {@code PluginClassLoader} has its own copy of
-     * {@link StandardKeyMetadata} and therefore its own static decoder cache to prime.
+     * <p>Idempotent and cheap: an in-memory Avro round trip per schema version. Called once per
+     * catalog, which is safe but normally redundant — on a three-catalog stack all three calls
+     * report the <em>same</em> {@code PluginClassLoader} identity, so they share one copy of
+     * {@link StandardKeyMetadata} and therefore one static decoder cache; the second and third
+     * primes are no-ops. Correctness does not depend on which way that falls. The loader is
+     * derived from this class's own definition (see below), so it is by construction the loader
+     * that resolves {@link StandardKeyMetadata} on the very decode path being primed — whether
+     * catalogs share one loader or each gets its own.
      *
      * <p>Called from {@code StandardEncryptionManagerFactory}'s constructor, which airlift's
      * {@code Bootstrap} drives eagerly: it creates the injector with {@code Stage.PRODUCTION}, so
      * the singleton is built at connector creation on <em>every</em> node rather than lazily on
      * first use. That matters because decryption happens on the workers' page-source path, and a
      * primer that only ran on the coordinator would look healthy while leaving workers exposed.
-     * The {@code INFO} line this method emits is the deploy-time confirmation — expect one per
-     * encryption-configured catalog on the coordinator <em>and</em> on each worker.
+     *
+     * <p>The {@code INFO} line this method emits is the deploy-time confirmation — expect one per
+     * encryption-configured catalog on the coordinator <em>and</em> on each worker, on thread
+     * {@code main}, each immediately preceding its catalog's {@code Added catalog} line and all of
+     * them before {@code SERVER STARTED}. It survives Trino's rendered {@code log.properties},
+     * which sets only {@code io.trino=<level>}: an {@code org.apache.iceberg.*} logger looks like
+     * it would be filtered there but is not, because it inherits the root default of {@code INFO}.
+     * Confirmed by observation, not assumed — three earlier attempts to gate this incident on a
+     * marker line read zero for reasons unrelated to behaviour.
      *
      * @throws IllegalStateException if the round trip does not produce a {@link StandardKeyMetadata},
      *         which means encrypted reads on this catalog would fail. Fail closed rather than let the
@@ -90,8 +102,10 @@ public final class KeyMetadataDecoderPrimer
     public static void prime()
     {
         // This class and StandardKeyMetadata ship in different jars (trino-iceberg and
-        // iceberg-core) but are loaded by the same catalog-scoped PluginClassLoader, so the loader
-        // that defines this class is exactly the one that must resolve StandardKeyMetadata.
+        // iceberg-core) but are loaded by the same iceberg PluginClassLoader, so the loader that
+        // defines this class is exactly the one that must resolve StandardKeyMetadata. Observed to
+        // be one loader shared across every iceberg catalog rather than one per catalog; this
+        // derivation holds either way.
         // Deriving it here rather than accepting it as a parameter removes any chance of being
         // handed the wrong loader, which would prime the cache with the very fallback reader this
         // exists to prevent.
