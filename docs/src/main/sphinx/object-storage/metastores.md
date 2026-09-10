@@ -526,6 +526,9 @@ following properties:
     Defaults to `false`.
 * - `iceberg.rest-catalog.view-endpoints-enabled`
   - Enable view endpoints. Defaults to `true`.
+* - `iceberg.rest-catalog.metrics-reporting-enabled`
+  - Report table scan and commit metrics to the REST catalog server. Defaults
+    to `true`.
 * - `iceberg.rest-catalog.signing-name`
   - AWS SigV4 signing service name. Defaults to `execute-api`.
 * - `iceberg.rest-catalog.google-project-id`

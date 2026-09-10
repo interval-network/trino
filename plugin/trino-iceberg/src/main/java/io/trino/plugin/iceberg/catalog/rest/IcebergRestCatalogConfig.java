@@ -63,6 +63,7 @@ public class IcebergRestCatalogConfig
     private Duration sessionTimeout = new Duration(CatalogProperties.AUTH_SESSION_TIMEOUT_MS_DEFAULT, MILLISECONDS);
     private boolean vendedCredentialsEnabled;
     private boolean viewEndpointsEnabled = true;
+    private boolean metricsReportingEnabled = true;
     private boolean caseInsensitiveNameMatching;
     private Map<String, String> httpHeaders = ImmutableMap.of();
     private Duration caseInsensitiveNameMatchingCacheTtl = new Duration(1, MINUTES);
@@ -214,6 +215,19 @@ public class IcebergRestCatalogConfig
     public IcebergRestCatalogConfig setViewEndpointsEnabled(boolean viewEndpointsEnabled)
     {
         this.viewEndpointsEnabled = viewEndpointsEnabled;
+        return this;
+    }
+
+    public boolean isMetricsReportingEnabled()
+    {
+        return metricsReportingEnabled;
+    }
+
+    @Config("iceberg.rest-catalog.metrics-reporting-enabled")
+    @ConfigDescription("Report table scan and commit metrics to the REST catalog server")
+    public IcebergRestCatalogConfig setMetricsReportingEnabled(boolean metricsReportingEnabled)
+    {
+        this.metricsReportingEnabled = metricsReportingEnabled;
         return this;
     }
 
