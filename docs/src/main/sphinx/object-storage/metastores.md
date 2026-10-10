@@ -498,6 +498,12 @@ following properties:
 * - `iceberg.rest-catalog.socket-timeout`
   - Maximum time [Duration](prop-type-duration) allowed socket read/write operations
     before timing out.
+* - `iceberg.rest-catalog.max-connections`
+  - Maximum number of pooled HTTP connections to the REST catalog server.
+    Defaults to `100`.
+* - `iceberg.rest-catalog.max-connections-per-route`
+  - Maximum number of pooled HTTP connections to the REST catalog server per
+    route. Defaults to `100`.
 * - `iceberg.rest-catalog.session-timeout`
   - [Duration](prop-type-duration) to keep authentication session in cache. Defaults to `1h`.
 * - `iceberg.rest-catalog.oauth2.token`
@@ -528,7 +534,7 @@ following properties:
   - Enable view endpoints. Defaults to `true`.
 * - `iceberg.rest-catalog.metrics-reporting-enabled`
   - Report table scan and commit metrics to the REST catalog server. Defaults
-    to `true`.
+    to `false` in this fork (upstream: `true`).
 * - `iceberg.rest-catalog.signing-name`
   - AWS SigV4 signing service name. Defaults to `execute-api`.
 * - `iceberg.rest-catalog.google-project-id`

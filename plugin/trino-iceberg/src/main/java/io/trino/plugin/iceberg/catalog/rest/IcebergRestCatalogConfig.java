@@ -19,6 +19,7 @@ import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.DefunctConfig;
 import io.airlift.units.Duration;
 import io.airlift.units.MinDuration;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import org.apache.iceberg.CatalogProperties;
 
@@ -60,10 +61,17 @@ public class IcebergRestCatalogConfig
     private SessionType sessionType = SessionType.NONE;
     private Duration connectionTimeout;
     private Duration socketTimeout;
+    private int maxConnections = 100;
+    private int maxConnectionsPerRoute = 100;
     private Duration sessionTimeout = new Duration(CatalogProperties.AUTH_SESSION_TIMEOUT_MS_DEFAULT, MILLISECONDS);
     private boolean vendedCredentialsEnabled;
     private boolean viewEndpointsEnabled = true;
-    private boolean metricsReportingEnabled = true;
+    // Interval fork: default OFF (upstream defaults to true). Iceberg's RESTMetricsReporter posts each
+    // scan report from a single static thread and SnapshotScan.planFiles waits for the post before
+    // returning, so on a busy coordinator every scan plan queues behind that one thread. Our REST
+    // server (Gravitino) discards the reports, so the default buys nothing and costs scheduling
+    // latency. Set the property to true to restore upstream behavior.
+    private boolean metricsReportingEnabled;
     private boolean caseInsensitiveNameMatching;
     private Map<String, String> httpHeaders = ImmutableMap.of();
     private Duration caseInsensitiveNameMatchingCacheTtl = new Duration(1, MINUTES);
@@ -174,6 +182,34 @@ public class IcebergRestCatalogConfig
     public IcebergRestCatalogConfig setSocketTimeout(Duration socketTimeout)
     {
         this.socketTimeout = socketTimeout;
+        return this;
+    }
+
+    @Min(1)
+    public int getMaxConnections()
+    {
+        return maxConnections;
+    }
+
+    @Config("iceberg.rest-catalog.max-connections")
+    @ConfigDescription("Maximum number of pooled HTTP connections to the REST catalog server")
+    public IcebergRestCatalogConfig setMaxConnections(int maxConnections)
+    {
+        this.maxConnections = maxConnections;
+        return this;
+    }
+
+    @Min(1)
+    public int getMaxConnectionsPerRoute()
+    {
+        return maxConnectionsPerRoute;
+    }
+
+    @Config("iceberg.rest-catalog.max-connections-per-route")
+    @ConfigDescription("Maximum number of pooled HTTP connections to the REST catalog server per route")
+    public IcebergRestCatalogConfig setMaxConnectionsPerRoute(int maxConnectionsPerRoute)
+    {
+        this.maxConnectionsPerRoute = maxConnectionsPerRoute;
         return this;
     }
 

@@ -86,6 +86,87 @@ final class TestOAuth2TokenFetch
         }
     }
 
+    @Test
+    void testTokenFetchCountForSessionNoneWhenCatalogTokenNearExpiry(@TempDir Path warehouseLocation)
+            throws Exception
+    {
+        Catalog backend = backendCatalog(warehouseLocation);
+        // The catalog session's token is issued already inside the one-minute sharing margin, so it is
+        // never shared; Iceberg refreshes it only after 54 seconds. Later tokens live an hour.
+        ExpiringTokenRestCatalogAdapter adapter = new ExpiringTokenRestCatalogAdapter(backend, Duration.ofSeconds(60), Duration.ofHours(1));
+        TestingHttpServer testServer = createTestServer(adapter);
+        testServer.start();
+
+        try (DistributedQueryRunner queryRunner = IcebergQueryRunner.builder()
+                .setIcebergProperties(
+                        ImmutableMap.<String, String>builder()
+                                .put("iceberg.catalog.type", "rest")
+                                .put("iceberg.rest-catalog.uri", testServer.getBaseUrl().toString())
+                                .put("iceberg.rest-catalog.security", "OAUTH2")
+                                .put("iceberg.rest-catalog.oauth2.credential", "client_id:client_secret")
+                                .put("iceberg.rest-catalog.oauth2.token-refresh-enabled", "true")
+                                .put("iceberg.rest-catalog.session", "NONE")
+                                .buildOrThrow())
+                .addIcebergProperty("fs.hadoop.enabled", "true")
+                .disableSchemaInitializer()
+                .build()) {
+            queryRunner.execute("CREATE SCHEMA test_schema");
+            queryRunner.execute("CREATE TABLE test_schema.test_table (id INTEGER, name VARCHAR)");
+            queryRunner.execute("INSERT INTO test_schema.test_table VALUES (1, 'alice'), (2, 'bob')");
+            queryRunner.execute("SELECT * FROM test_schema.test_table");
+            queryRunner.execute("DROP TABLE test_schema.test_table");
+            queryRunner.execute("DROP SCHEMA test_schema");
+
+            // One fetch for the catalog session and one for the stable fallback session; every
+            // operation would fetch its own token without the fallback (18 when measured). A third
+            // fetch is allowed in case a slow run reaches the catalog token's refresh at 54 seconds.
+            assertThat(adapter.tokenFetchCount()).isBetween(2, 3);
+        }
+        finally {
+            testServer.stop();
+        }
+    }
+
+    @Test
+    void testTokenFetchCountForSessionNoneWhenEveryTokenNearExpiry(@TempDir Path warehouseLocation)
+            throws Exception
+    {
+        Catalog backend = backendCatalog(warehouseLocation);
+        // Every token is issued inside the sharing margin, so neither the catalog session nor the
+        // stable fallback session is fresh enough to share, and each operation must authenticate
+        // with its own session rather than reuse one whose token is about to expire
+        ExpiringTokenRestCatalogAdapter adapter = new ExpiringTokenRestCatalogAdapter(backend, Duration.ofSeconds(60));
+        TestingHttpServer testServer = createTestServer(adapter);
+        testServer.start();
+
+        try (DistributedQueryRunner queryRunner = IcebergQueryRunner.builder()
+                .setIcebergProperties(
+                        ImmutableMap.<String, String>builder()
+                                .put("iceberg.catalog.type", "rest")
+                                .put("iceberg.rest-catalog.uri", testServer.getBaseUrl().toString())
+                                .put("iceberg.rest-catalog.security", "OAUTH2")
+                                .put("iceberg.rest-catalog.oauth2.credential", "client_id:client_secret")
+                                .put("iceberg.rest-catalog.oauth2.token-refresh-enabled", "true")
+                                .put("iceberg.rest-catalog.session", "NONE")
+                                .buildOrThrow())
+                .addIcebergProperty("fs.hadoop.enabled", "true")
+                .disableSchemaInitializer()
+                .build()) {
+            queryRunner.execute("CREATE SCHEMA test_schema");
+            queryRunner.execute("CREATE TABLE test_schema.test_table (id INTEGER, name VARCHAR)");
+            queryRunner.execute("INSERT INTO test_schema.test_table VALUES (1, 'alice'), (2, 'bob')");
+            queryRunner.execute("SELECT * FROM test_schema.test_table");
+            queryRunner.execute("DROP TABLE test_schema.test_table");
+            queryRunner.execute("DROP SCHEMA test_schema");
+
+            // Catalog session, fallback session, then one per operation
+            assertThat(adapter.tokenFetchCount()).isGreaterThan(3);
+        }
+        finally {
+            testServer.stop();
+        }
+    }
+
     private static TestingHttpServer createTestServer(ExpiringTokenRestCatalogAdapter adapter)
             throws Exception
     {
@@ -102,11 +183,18 @@ final class TestOAuth2TokenFetch
             extends RESTCatalogAdapter
     {
         private final AtomicInteger tokenFetchCount = new AtomicInteger();
+        private final int firstTokenExpiresInSeconds;
         private final int tokenExpiresInSeconds;
 
         public ExpiringTokenRestCatalogAdapter(Catalog delegate, Duration tokenExpiresIn)
         {
+            this(delegate, tokenExpiresIn, tokenExpiresIn);
+        }
+
+        public ExpiringTokenRestCatalogAdapter(Catalog delegate, Duration firstTokenExpiresIn, Duration tokenExpiresIn)
+        {
             super(delegate);
+            this.firstTokenExpiresInSeconds = toIntExact(firstTokenExpiresIn.toSeconds());
             this.tokenExpiresInSeconds = toIntExact(tokenExpiresIn.toSeconds());
         }
 
@@ -119,13 +207,13 @@ final class TestOAuth2TokenFetch
         {
             T response = super.execute(request, responseType, errorHandler, responseHeaders);
             if (response instanceof OAuthTokenResponse tokenResponse) {
-                tokenFetchCount.incrementAndGet();
+                int expiresInSeconds = tokenFetchCount.getAndIncrement() == 0 ? firstTokenExpiresInSeconds : tokenExpiresInSeconds;
                 return responseType.cast(OAuthTokenResponse.builder()
-                        .withToken(jwtEncodingExpiry(tokenExpiresInSeconds))
+                        .withToken(jwtEncodingExpiry(expiresInSeconds))
                         .withTokenType(tokenResponse.tokenType())
                         .withIssuedTokenType(tokenResponse.issuedTokenType())
                         .addScopes(tokenResponse.scopes())
-                        .setExpirationInSeconds(tokenExpiresInSeconds)
+                        .setExpirationInSeconds(expiresInSeconds)
                         .build());
             }
             return response;
