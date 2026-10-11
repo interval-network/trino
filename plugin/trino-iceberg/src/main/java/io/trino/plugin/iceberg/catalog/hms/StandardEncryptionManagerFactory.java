@@ -76,9 +76,18 @@ public class StandardEncryptionManagerFactory
             // that cannot read any encrypted table.
             KeyMetadataDecoderPrimer.prime();
         }
-        this.sharedKmsClient = encryptionConfigured
+        KeyManagementClient kmsClient = encryptionConfigured
                 ? buildAndInitializeKmsClient(encryptionConfig)
                 : null;
+        // PLE-552: every KMS unwrap on this catalog, from the fork's REST path and from the native-framework bridge
+        // (RestNativeEncryptionManagerFactory, which reuses this client), goes through the one shared client, so
+        // wrapping it here covers both. Off unless encryption.kms.key-cache-ttl is set; see
+        // CachingKeyManagementClient for the security trade-off.
+        if (kmsClient != null && encryptionConfig.isKeyCacheEnabled()) {
+            kmsClient = new CachingKeyManagementClient(kmsClient, encryptionConfig.getKeyCacheTtl(), encryptionConfig.getKeyCacheMaxSize());
+            log.info("KMS unwrapped-key cache enabled: ttl=%s, max-size=%s", encryptionConfig.getKeyCacheTtl(), encryptionConfig.getKeyCacheMaxSize());
+        }
+        this.sharedKmsClient = kmsClient;
     }
 
     @VisibleForTesting
