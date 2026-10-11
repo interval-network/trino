@@ -712,7 +712,27 @@ public class IcebergMetadata
         }
 
         if (endVersion.isPresent()) {
-            long snapshotId = getSnapshotIdFromVersion(session, table, endVersion.get());
+            long snapshotId;
+            try {
+                snapshotId = getSnapshotIdFromVersion(session, table, endVersion.get());
+            }
+            catch (TrinoException e) {
+                // Interval fork (PLE-551): with iceberg.rest-catalog.table-cache-ttl set, the loaded metadata can be
+                // up to that TTL old, so a snapshot id, ref, or (for a table with no snapshot old enough) timestamp
+                // committed by another engine since then is missing from it. Reload once from the server before
+                // reporting it as unknown. Catalogs that keep nothing across queries return empty and the original
+                // error stands, unchanged from upstream. A FOR TIMESTAMP AS OF that resolves to an older snapshot of
+                // the stale metadata cannot be detected here and reads that older snapshot.
+                if (!e.getErrorCode().equals(INVALID_ARGUMENTS.toErrorCode())) {
+                    throw e;
+                }
+                Optional<BaseTable> reloaded = catalog.reloadTableBypassingCrossQueryCache(session, new SchemaTableName(tableName.getSchemaName(), tableName.getTableName()));
+                if (reloaded.isEmpty()) {
+                    throw e;
+                }
+                table = reloaded.get();
+                snapshotId = getSnapshotIdFromVersion(session, table, endVersion.get());
+            }
             return tableHandleForSnapshot(
                     session,
                     tableName,

@@ -134,6 +134,8 @@ public class TrinoRestCatalog
     private final Cache<Namespace, Namespace> remoteNamespaceMappingCache;
     private final Cache<TableIdentifier, TableIdentifier> remoteTableMappingCache;
     private final boolean viewEndpointsEnabled;
+    // Interval fork (PLE-551): the catalog-wide loadTable response cache shared across queries, when enabled.
+    private final Optional<RestTableMetadataCache> crossQueryTableMetadataCache;
 
     private final Cache<SchemaTableName, BaseTable> tableCache = EvictableCacheBuilder.newBuilder()
             .maximumSize(PER_QUERY_CACHE_SIZE)
@@ -155,6 +157,40 @@ public class TrinoRestCatalog
             Cache<TableIdentifier, TableIdentifier> remoteTableMappingCache,
             boolean viewEndpointsEnabled)
     {
+        this(fileSystemFactory,
+                restSessionCatalog,
+                catalogName,
+                security,
+                sessionType,
+                credentials,
+                nestedNamespaceEnabled,
+                trinoVersion,
+                typeManager,
+                useUniqueTableLocation,
+                caseInsensitiveNameMatching,
+                remoteNamespaceMappingCache,
+                remoteTableMappingCache,
+                viewEndpointsEnabled,
+                Optional.empty());
+    }
+
+    public TrinoRestCatalog(
+            IcebergFileSystemFactory fileSystemFactory,
+            RESTSessionCatalog restSessionCatalog,
+            CatalogName catalogName,
+            Security security,
+            SessionType sessionType,
+            Map<String, String> credentials,
+            boolean nestedNamespaceEnabled,
+            String trinoVersion,
+            TypeManager typeManager,
+            boolean useUniqueTableLocation,
+            boolean caseInsensitiveNameMatching,
+            Cache<Namespace, Namespace> remoteNamespaceMappingCache,
+            Cache<TableIdentifier, TableIdentifier> remoteTableMappingCache,
+            boolean viewEndpointsEnabled,
+            Optional<RestTableMetadataCache> crossQueryTableMetadataCache)
+    {
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.restSessionCatalog = requireNonNull(restSessionCatalog, "restSessionCatalog is null");
         this.catalogName = requireNonNull(catalogName, "catalogName is null");
@@ -169,6 +205,7 @@ public class TrinoRestCatalog
         this.remoteNamespaceMappingCache = requireNonNull(remoteNamespaceMappingCache, "remoteNamespaceMappingCache is null");
         this.remoteTableMappingCache = requireNonNull(remoteTableMappingCache, "remoteTableMappingCache is null");
         this.viewEndpointsEnabled = viewEndpointsEnabled;
+        this.crossQueryTableMetadataCache = requireNonNull(crossQueryTableMetadataCache, "crossQueryTableMetadataCache is null");
     }
 
     @Override
@@ -596,6 +633,19 @@ public class TrinoRestCatalog
             }
             throw new TrinoException(ICEBERG_CATALOG_ERROR, format("Failed to load table: %s in %s namespace", schemaTableName.getTableName(), namespace), e.getCause());
         }
+    }
+
+    @Override
+    public Optional<BaseTable> reloadTableBypassingCrossQueryCache(ConnectorSession session, SchemaTableName schemaTableName)
+    {
+        if (crossQueryTableMetadataCache.isEmpty()) {
+            return Optional.empty();
+        }
+        // The whole cache, not one entry: the cache is keyed by REST path, which only RESTSessionCatalog can
+        // compute, and this path runs only when a query names a snapshot the cached metadata lacks.
+        crossQueryTableMetadataCache.get().invalidateAll();
+        invalidateTableCache(schemaTableName);
+        return Optional.of(loadTable(session, schemaTableName));
     }
 
     private TableIdentifier toRemoteObject(ConnectorSession session, SchemaTableName schemaTableName)

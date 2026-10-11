@@ -38,6 +38,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.io.MoreFiles.deleteRecursively;
@@ -103,10 +104,17 @@ public class TestIcebergTrinoRestCatalogConnectorSmokeTest
                                 .put("iceberg.rest-catalog.uri", testServer.getBaseUrl().toString())
                                 .put("iceberg.register-table-procedure.enabled", "true")
                                 .put("iceberg.writer-sort-buffer-size", "1MB")
+                                .putAll(additionalIcebergProperties())
                                 .buildOrThrow())
                 .addIcebergProperty("fs.hadoop.enabled", "true")
                 .setInitialTables(REQUIRED_TPCH_TABLES)
                 .build();
+    }
+
+    // Interval fork (PLE-551): lets a subclass rerun this suite with extra catalog properties
+    protected Map<String, String> additionalIcebergProperties()
+    {
+        return ImmutableMap.of();
     }
 
     @AfterAll
