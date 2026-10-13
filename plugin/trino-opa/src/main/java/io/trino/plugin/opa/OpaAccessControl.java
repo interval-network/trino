@@ -37,6 +37,7 @@ import io.trino.spi.connector.CatalogSchemaRoutineName;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnSchema;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.eventlistener.EventListener;
 import io.trino.spi.function.SchemaFunctionName;
 import io.trino.spi.security.AccessDeniedException;
 import io.trino.spi.security.Identity;
@@ -92,6 +93,7 @@ public sealed class OpaAccessControl
     private final OpaHighLevelClient opaHighLevelClient;
     private final boolean allowPermissionManagementOperations;
     private final OpaPluginContext pluginContext;
+    private final OpaAccessCatalogMemo accessCatalogMemo = new OpaAccessCatalogMemo();
 
     @Inject
     public OpaAccessControl(LifeCycleManager lifeCycleManager, OpaHighLevelClient opaHighLevelClient, OpaConfig config, OpaPluginContext pluginContext)
@@ -169,10 +171,15 @@ public sealed class OpaAccessControl
     @Override
     public boolean canAccessCatalog(SystemSecurityContext context, String catalogName)
     {
-        return opaHighLevelClient.queryOpaWithSimpleResource(
+        OpaQueryInput input = buildQueryInputForSimpleResource(
                 buildQueryContext(context),
                 "AccessCatalog",
                 OpaQueryInputResource.builder().catalog(catalogName).build());
+        return accessCatalogMemo.decide(
+                context.getQueryId().toString(),
+                context.getQueryStart(),
+                input,
+                () -> opaHighLevelClient.queryOpa(input));
     }
 
     @Override
@@ -744,6 +751,13 @@ public sealed class OpaAccessControl
                 .entrySet().stream()
                 .map(entry -> Map.entry(entry.getKey(), entry.getValue().toTrinoViewExpression(tableName.getCatalogName(), tableName.getSchemaTableName().getSchemaName())))
                 .collect(toImmutableMap(Entry::getKey, Entry::getValue));
+    }
+
+    @Override
+    public Iterable<EventListener> getEventListeners()
+    {
+        // Frees a query's AccessCatalog memo when the query completes.
+        return ImmutableSet.of(accessCatalogMemo);
     }
 
     @Override
