@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.iceberg.catalog.hms;
 
+import io.airlift.units.Duration;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 import java.util.Optional;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -83,6 +85,31 @@ public class TestStandardEncryptionManagerFactory
 
         assertThat(factory.sharedKmsClientForTesting())
                 .as("kms-impl alone must count as encryption being configured")
+                .isInstanceOf(TestablePluggableKmsClient.class);
+    }
+
+    @Test
+    public void keyCacheTtlWrapsTheSharedClient()
+    {
+        // PLE-552: the unwrapped-key cache wraps the one shared client, so both the fork's REST path and the native
+        // bridge (RestNativeEncryptionManagerFactory reuses sharedKmsClient()) go through it
+        IcebergEncryptionConfig config = new IcebergEncryptionConfig()
+                .setKmsImpl(TestablePluggableKmsClient.class.getName())
+                .setKeyCacheTtl(new Duration(300, SECONDS));
+
+        StandardEncryptionManagerFactory factory = new StandardEncryptionManagerFactory(config);
+
+        assertThat(factory.sharedKmsClientForTesting()).isInstanceOf(CachingKeyManagementClient.class);
+        assertThat(factory.sharedKmsClient()).containsSame(factory.sharedKmsClientForTesting());
+    }
+
+    @Test
+    public void keyCacheIsOffByDefault()
+    {
+        IcebergEncryptionConfig config = new IcebergEncryptionConfig()
+                .setKmsImpl(TestablePluggableKmsClient.class.getName());
+
+        assertThat(new StandardEncryptionManagerFactory(config).sharedKmsClientForTesting())
                 .isInstanceOf(TestablePluggableKmsClient.class);
     }
 

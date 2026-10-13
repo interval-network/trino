@@ -535,6 +535,16 @@ following properties:
 * - `iceberg.rest-catalog.metrics-reporting-enabled`
   - Report table scan and commit metrics to the REST catalog server. Defaults
     to `false` in this fork (upstream: `true`).
+* - `iceberg.rest-catalog.table-cache-ttl`
+  - Fork only. [Duration](prop-type-duration) for which a node reuses a REST
+    `loadTable` response across queries. A table committed by another engine
+    can be read up to this stale; commits, DDL, and drops issued by the same
+    node clear the cache. Requires `iceberg.rest-catalog.session=NONE` and
+    cannot be combined with `iceberg.rest-catalog.vended-credentials-enabled`.
+    Defaults to `0s` (off).
+* - `iceberg.rest-catalog.table-cache-max-size`
+  - Fork only. Maximum number of `loadTable` responses kept by
+    `iceberg.rest-catalog.table-cache-ttl`. Defaults to `1000`.
 * - `iceberg.rest-catalog.signing-name`
   - AWS SigV4 signing service name. Defaults to `execute-api`.
 * - `iceberg.rest-catalog.google-project-id`

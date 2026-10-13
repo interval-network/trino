@@ -152,6 +152,19 @@ public interface TrinoCatalog
     BaseTable loadTable(ConnectorSession session, SchemaTableName schemaTableName);
 
     /**
+     * Interval fork (PLE-551): reloads a table from the catalog server, bypassing any metadata this catalog
+     * keeps across queries. Called when a query names a snapshot or ref the loaded metadata does not hold,
+     * which can mean the loaded metadata is older than the request rather than that the snapshot is unknown.
+     *
+     * @return the freshly loaded table, or empty when this catalog keeps nothing across queries, so a reload
+     *         could not return anything newer than {@link #loadTable} already did
+     */
+    default Optional<BaseTable> reloadTableBypassingCrossQueryCache(ConnectorSession session, SchemaTableName schemaTableName)
+    {
+        return Optional.empty();
+    }
+
+    /**
      * Bulk load column metadata. The returned map may contain fewer entries then asked for.
      */
     Map<SchemaTableName, List<ColumnMetadata>> tryGetColumnMetadata(ConnectorSession session, List<SchemaTableName> tables);

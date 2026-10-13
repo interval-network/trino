@@ -32,6 +32,8 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.String.format;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 @DefunctConfig({
         "iceberg.rest-catalog.parent-namespace",
@@ -75,6 +77,9 @@ public class IcebergRestCatalogConfig
     private boolean caseInsensitiveNameMatching;
     private Map<String, String> httpHeaders = ImmutableMap.of();
     private Duration caseInsensitiveNameMatchingCacheTtl = new Duration(1, MINUTES);
+    // Interval fork (PLE-551): cross-query cache of loadTable responses. 0s = off, the upstream behaviour.
+    private Duration tableCacheTtl = new Duration(0, SECONDS);
+    private long tableCacheMaxSize = 1000;
 
     @NotNull
     public URI getBaseUri()
@@ -314,5 +319,40 @@ public class IcebergRestCatalogConfig
     {
         this.caseInsensitiveNameMatchingCacheTtl = caseInsensitiveNameMatchingCacheTtl;
         return this;
+    }
+
+    @NotNull
+    @MinDuration("0ms")
+    public Duration getTableCacheTtl()
+    {
+        return tableCacheTtl;
+    }
+
+    @Config("iceberg.rest-catalog.table-cache-ttl")
+    @ConfigDescription("How long this node reuses a REST loadTable response across queries; 0s disables the cache. " +
+            "A table written by another engine can be read up to this stale")
+    public IcebergRestCatalogConfig setTableCacheTtl(Duration tableCacheTtl)
+    {
+        this.tableCacheTtl = tableCacheTtl;
+        return this;
+    }
+
+    @Min(1)
+    public long getTableCacheMaxSize()
+    {
+        return tableCacheMaxSize;
+    }
+
+    @Config("iceberg.rest-catalog.table-cache-max-size")
+    @ConfigDescription("Maximum number of loadTable responses kept by iceberg.rest-catalog.table-cache-ttl")
+    public IcebergRestCatalogConfig setTableCacheMaxSize(long tableCacheMaxSize)
+    {
+        this.tableCacheMaxSize = tableCacheMaxSize;
+        return this;
+    }
+
+    public boolean isTableCacheEnabled()
+    {
+        return tableCacheTtl.roundTo(NANOSECONDS) > 0;
     }
 }

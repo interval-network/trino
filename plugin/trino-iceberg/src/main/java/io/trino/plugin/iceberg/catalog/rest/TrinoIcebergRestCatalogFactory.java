@@ -35,12 +35,15 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.EncryptionAwareRESTSessionCatalog;
 import org.apache.iceberg.rest.HTTPClient;
+import org.apache.iceberg.rest.RESTClient;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.RESTUtil;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.apache.iceberg.rest.auth.OAuth2Properties.CREDENTIAL;
@@ -65,6 +68,8 @@ public class TrinoIcebergRestCatalogFactory
     private final boolean caseInsensitiveNameMatching;
     private final Cache<Namespace, Namespace> remoteNamespaceMappingCache;
     private final Cache<TableIdentifier, TableIdentifier> remoteTableMappingCache;
+    // Interval fork (PLE-551): one per catalog, shared by every query on this node. Empty when the TTL is 0.
+    private final Optional<RestTableMetadataCache> tableMetadataCache;
 
     @GuardedBy("this")
     private RESTSessionCatalog icebergCatalog;
@@ -106,6 +111,19 @@ public class TrinoIcebergRestCatalogFactory
                 .expireAfterWrite(restConfig.getCaseInsensitiveNameMatchingCacheTtl().toMillis(), MILLISECONDS)
                 .shareNothingWhenDisabled()
                 .build();
+        // The cache is keyed by table only, which is identity-safe solely because session type NONE sends every
+        // request as the catalog's own principal (see RestTableMetadataCache). A USER session sends a per-user
+        // principal, and Gravitino authorizes per principal, so one user's response must never serve another's.
+        checkArgument(
+                !restConfig.isTableCacheEnabled() || sessionType == SessionType.NONE,
+                "iceberg.rest-catalog.table-cache-ttl requires iceberg.rest-catalog.session=NONE");
+        // A cached loadTable response would replay vended storage credentials past their expiry.
+        checkArgument(
+                !restConfig.isTableCacheEnabled() || !restConfig.isVendedCredentialsEnabled(),
+                "iceberg.rest-catalog.table-cache-ttl cannot be combined with iceberg.rest-catalog.vended-credentials-enabled");
+        this.tableMetadataCache = restConfig.isTableCacheEnabled()
+                ? Optional.of(new RestTableMetadataCache(restConfig.getTableCacheTtl(), restConfig.getTableCacheMaxSize()))
+                : Optional.empty();
     }
 
     @Override
@@ -115,10 +133,10 @@ public class TrinoIcebergRestCatalogFactory
         // for authorization and config route
         if (icebergCatalog == null) {
             RESTSessionCatalog icebergCatalogInstance = new EncryptionAwareRESTSessionCatalog(
-                    config -> HTTPClient.builder(config)
+                    config -> wrapWithTableMetadataCache(HTTPClient.builder(config)
                             .uri(config.get(CatalogProperties.URI))
                             .withHeaders(RESTUtil.configHeaders(config))
-                            .build(),
+                            .build()),
                     (context, config) -> {
                         ConnectorIdentity currentIdentity = (context.wrappedIdentity() != null)
                                 ? ((ConnectorIdentity) context.wrappedIdentity())
@@ -149,6 +167,14 @@ public class TrinoIcebergRestCatalogFactory
                 caseInsensitiveNameMatching,
                 remoteNamespaceMappingCache,
                 remoteTableMappingCache,
-                viewEndpointsEnabled);
+                viewEndpointsEnabled,
+                tableMetadataCache);
+    }
+
+    private RESTClient wrapWithTableMetadataCache(RESTClient client)
+    {
+        return tableMetadataCache
+                .map(cache -> cache.wrap(client))
+                .orElse(client);
     }
 }
